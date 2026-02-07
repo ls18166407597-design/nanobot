@@ -137,7 +137,14 @@ class AgentLoop:
         self.tools.register(MemoryTool(workspace=self.workspace))
 
         # Skills tool (Plaza/management)
-        self.tools.register(SkillsTool(workspace=self.workspace))
+        self.tools.register(
+            SkillsTool(
+                workspace=self.workspace,
+                search_func=self.tools.get("web_search").execute
+                if self.tools.has("web_search")
+                else None,
+            )
+        )
 
     async def run(self) -> None:
         """Run the agent loop, processing messages from the bus."""

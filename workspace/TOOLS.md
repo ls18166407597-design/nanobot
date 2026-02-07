@@ -52,9 +52,11 @@ Access global documentation and real-time data.
 ## 🛒 Skill Plaza & Management (skills)
 Manage your capabilities and explore the OpenClaw library.
 ```python
-skills(action="list_plaza")          # Browse all available expert patterns
-skills(action="search_plaza", query="api") # Search for specific functionality
-skills(action="install", skill_name="summarize") # Install/Activate a skill in the workspace
+skills(action="list_plaza")          # Browse available expert patterns locally
+skills(action="browse_online", query="api") # Search global Skill Plaza (ClawHub.ai)
+skills(action="search_plaza", query="api") # Search specific functionality locally
+skills(action="install", skill_name="summarize") # Activate local library skill
+skills(action="install_url", skill_name="summarize", url="...") # Download/Install from web
 skills(action="list_installed")      # List skills currently active in workspace
 ```
 
