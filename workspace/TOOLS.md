@@ -1,194 +1,54 @@
-# Available Tools
+# Available Tools (Action-Oriented)
 
-This document describes the tools available to nanobot.
+Access these tools directly. Use them proactively to investigate and verify.
 
-## File Operations
+## 📁 File System Expert
+You possess advanced file manipulation capabilities. Use `exec("ls -R")` or `exec("find .")` to discover the structure if you are lost.
 
-### read_file
-Read the contents of a file.
-```
-read_file(path: str) -> str
-```
+### `read_file(path: str)`
+Lead with this. Never guess file content.
 
-### write_file
-Write content to a file (creates parent directories if needed).
-```
-write_file(path: str, content: str) -> str
-```
+### `write_file(path: str, content: str)`
+Create or overwrite. Always follow with a `read_file` to verify the exact bytes written.
 
-### edit_file
-Edit a file by replacing specific text.
-```
-edit_file(path: str, old_text: str, new_text: str) -> str
-```
+### `edit_file(path: str, old_text: str, new_text: str)`
+Precision modification. Ensure `old_text` is unique.
 
-### list_dir
-List contents of a directory.
-```
-list_dir(path: str) -> str
-```
+### `list_dir(path: str)`
+Broad discovery.
 
-## Shell Execution
+---
 
-### exec
-Execute a shell command and return output.
-```
-exec(command: str, working_dir: str = None) -> str
-```
-
-**Safety Notes:**
-- Commands have a configurable timeout (default 60s)
-- Dangerous commands are blocked (rm -rf, format, dd, shutdown, etc.)
-- Output is truncated at 10,000 characters
-- Optional `restrictToWorkspace` config to limit paths
-
-## Web Access
-
-### web_search
-Search the web using Brave Search API.
-```
-web_search(query: str, count: int = 5) -> str
-```
-
-Returns search results with titles, URLs, and snippets. Requires `tools.web.search.apiKey` in config.
-
-### web_fetch
-Fetch and extract main content from a URL.
-```
-web_fetch(url: str, extractMode: str = "markdown", maxChars: int = 50000) -> str
-```
-
-**Notes:**
-- Content is extracted using readability
-- Supports markdown or plain text extraction
-- Output is truncated at 50,000 characters by default
-
-## Communication
-
-### message
-Send a message to the user (used internally).
-```
-message(content: str, channel: str = None, chat_id: str = None) -> str
-```
-
-## Background Tasks
-
-### spawn
-Spawn a subagent to handle a task in the background.
-```
-spawn(task: str, label: str = None) -> str
-```
-
-Use for complex or time-consuming tasks that can run independently. The subagent will complete the task and report back when done.
-
-## Scheduled Reminders (Cron)
-
-Use the `exec` tool to create scheduled reminders with `nanobot cron add`:
-
-### Set a recurring reminder
-```bash
-# Every day at 9am
-nanobot cron add --name "morning" --message "Good morning! ☀️" --cron "0 9 * * *"
-
-# Every 2 hours
-nanobot cron add --name "water" --message "Drink water! 💧" --every 7200
-```
-
-### Set a one-time reminder
-```bash
-# At a specific time (ISO format)
-nanobot cron add --name "meeting" --message "Meeting starts now!" --at "2025-01-31T15:00:00"
-```
-
-### Manage reminders
-```bash
-nanobot cron list              # List all jobs
-nanobot cron remove <job_id>   # Remove a job
-```
-
-## Heartbeat Task Management
-
-The `HEARTBEAT.md` file in the workspace is checked every 30 minutes.
-Use file operations to manage periodic tasks:
-
-### Add a heartbeat task
+## ⚡️ Command Center (exec)
+Your bridge to the OS. Boldly use standard Unix tools.
 ```python
-# Append a new task
-edit_file(
-    path="HEARTBEAT.md",
-    old_text="## Example Tasks",
-    new_text="- [ ] New periodic task here\n\n## Example Tasks"
-)
-```
-
-### Remove a heartbeat task
-```python
-# Remove a specific task
-edit_file(
-    path="HEARTBEAT.md",
-    old_text="- [ ] Task to remove\n",
-    new_text=""
-)
-```
-
-### Rewrite all tasks
-```python
-# Replace the entire file
-write_file(
-    path="HEARTBEAT.md",
-    content="# Heartbeat Tasks\n\n- [ ] Task 1\n- [ ] Task 2\n"
-)
+exec("ps aux | grep nanobot") # Verify process health
+exec("du -sh ~/.Trash")       # Analyze junk
+exec("grep -r 'todo' .")      # Find technical debt
 ```
 
 ---
 
-## Personal Assistant Capabilities
-
-### gmail
-Manage emails using App Passwords (IMAP/SMTP).
-```python
-gmail(action="list", limit=5)
-gmail(action="read", index=1)
-gmail(action="send", to="recipient@example.com", subject="Hello", body="Content")
-```
-
-### mac
-Control macOS system settings and applications.
-```python
-mac(action="set_volume", value=50) # 0-100
-mac(action="open_app", value="Notes")
-mac(action="battery")
-mac(action="system_stats")
-```
-
-### github
-Advanced GitHub integration (Issue/PR/Repo).
-```python
-github(action="list_issues", repo="owner/repo")
-github(action="create_issue", repo="owner/repo", title="Title", body="Content")
-github(action="list_repos")
-```
-
-### knowledge
-Interact with local Markdown knowledge base (Obsidian style).
-```python
-knowledge(action="search_notes", query="topic")
-knowledge(action="append_daily", content="Entry for today")
-```
-
-### memory
-Active long-term memory management for Nanobot.
-```python
-memory(action="append_daily", content="Remember: user likes Python")
-memory(action="search", query="preference")
-memory(action="update_long_term", content="Full aggregated facts...")
-```
+## 🌐 Web Intelligence
+Access global documentation and real-time data.
+- **Search**: For APIs, errors, or news.
+- **Fetch**: Deep-read technical pages.
 
 ---
 
-## Adding Custom Tools
+## 📧 Communication & Integration
+- **Gmail**: Be concise in email. Use `list` to check for recent Boss commands.
+- **GitHub**: Manage the codebase like a Senior Engineer.
+- **Mac Control**: You ARE the system's brain. Control volume, apps, and hardware stats at will.
 
-To add custom tools:
-1. Create a class that extends `Tool` in `nanobot/agent/tools/`
-2. Implement `name`, `description`, `parameters`, and `execute`
-3. Register it in `AgentLoop._register_default_tools()`
+---
+
+## 🧠 Memory & Knowledge
+- **Knowledge**: Your persistent brain (Obsidian). Append daily thoughts automatically.
+- **Memory**: Durable facts. If the Boss expresses a preference, COMMIT IT TO MEMORY IMMEDIATELY.
+
+---
+
+## 🚀 Advanced Capabilities
+- **Spawn**: Delegate long-running background audits to your clones.
+- **Skills**: You have a massive library of 50+ expert patterns in `lib:*`. Read them to become an expert in 1password, healthchecks, summarizing, and more.
