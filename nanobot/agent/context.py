@@ -29,12 +29,15 @@ class ContextBuilder:
         self.memory = MemoryStore(workspace)
         self.skills = SkillsLoader(workspace)
 
-    def build_system_prompt(self, skill_names: list[str] | None = None) -> str:
+    def build_system_prompt(
+        self, skill_names: list[str] | None = None, query: str | None = None
+    ) -> str:
         """
         Build the system prompt from bootstrap files, memory, and skills.
 
         Args:
             skill_names: Optional list of skills to include.
+            query: Optional query for memory retrieval (Light RAG).
 
         Returns:
             Complete system prompt.
@@ -49,8 +52,8 @@ class ContextBuilder:
         if bootstrap:
             parts.append(bootstrap)
 
-        # Memory context - Lean loading
-        memory_summary = self.memory.get_memory_context()
+        # Memory context - Lean loading with Light RAG
+        memory_summary = self.memory.get_memory_context(query)
         if memory_summary:
             # Instead of full loading, we provide a teaser and instructions to search
             parts.append(f"""# Memory (Persistent)
@@ -223,10 +226,10 @@ Only use the 'message' tool for sending to external chat channels (Telegram, etc
         messages = []
 
         # System prompt
-        system_prompt = self.build_system_prompt(skill_names)
+        # Use current message as query for RAG
+        system_prompt = self.build_system_prompt(skill_names, query=current_message)
         if channel and chat_id:
-            system_prompt += f"\n\n## Current Session\nChannel: {channel}\nChat ID: {chat_id}"
-        messages.append({"role": "system", "content": system_prompt})
+            messages.append({"role": "system", "content": system_prompt})
 
         # History
         messages.extend(history)

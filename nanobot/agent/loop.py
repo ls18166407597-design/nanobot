@@ -1,10 +1,13 @@
 import asyncio
 import json
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from nanobot.session.manager import Session
 
 if TYPE_CHECKING:
-    from nanobot.config.schema import ExecToolConfig
+    from nanobot.config.schema import BrainConfig, ExecToolConfig
     from nanobot.cron.service import CronService
 
 from loguru import logger
@@ -58,6 +61,7 @@ class AgentLoop:
         exec_config: "ExecToolConfig | None" = None,
         cron_service: "CronService | None" = None,
         restrict_to_workspace: bool = False,
+        brain_config: "BrainConfig | None" = None,
     ):
         self.bus = bus
         self.provider = provider
@@ -65,11 +69,12 @@ class AgentLoop:
         self.model = model or provider.get_default_model()
         self.max_iterations = max_iterations
         self.brave_api_key = brave_api_key
-        from nanobot.config.schema import ExecToolConfig
+        from nanobot.config.schema import BrainConfig, ExecToolConfig
 
         self.exec_config = exec_config or ExecToolConfig()
         self.cron_service = cron_service
         self.restrict_to_workspace = restrict_to_workspace
+        self.brain_config = brain_config or BrainConfig()
 
         self.context = ContextBuilder(workspace)
         self.sessions = SessionManager(workspace)
@@ -102,6 +107,8 @@ class AgentLoop:
                 working_dir=str(self.workspace),
                 timeout=self.exec_config.timeout,
                 restrict_to_workspace=self.restrict_to_workspace,
+                provider=self.provider,
+                brain_config=self.brain_config,
             )
         )
 
@@ -199,6 +206,9 @@ class AgentLoop:
         # Get or create session
         session = self.sessions.get_or_create(msg.session_key)
 
+        # Auto-summarize if needed
+        await self._summarize_history(session)
+
         # Update tool contexts
         message_tool = self.tools.get("message")
         if isinstance(message_tool, MessageTool):
@@ -251,13 +261,26 @@ class AgentLoop:
                     messages, response.content, tool_call_dicts
                 )
 
-                # Execute tools
+                # Execute tools in parallel
+                tool_coros = []
                 for tool_call in response.tool_calls:
                     args_str = json.dumps(tool_call.arguments)
                     logger.debug(f"Executing tool: {tool_call.name} with arguments: {args_str}")
-                    result = await self.tools.execute(tool_call.name, tool_call.arguments)
+                    tool_coros.append(self.tools.execute(tool_call.name, tool_call.arguments))
+
+                # Wait for all tools to complete
+                results = await asyncio.gather(*tool_coros, return_exceptions=True)
+
+                # Add results to messages
+                for tool_call, result in zip(response.tool_calls, results):
+                    # Handle exceptions from individual tools
+                    if isinstance(result, Exception):
+                        result_str = f"Error executing tool {tool_call.name}: {str(result)}"
+                    else:
+                        result_str = str(result)
+                        
                     messages = self.context.add_tool_result(
-                        messages, tool_call.id, tool_call.name, result
+                        messages, tool_call.id, tool_call.name, result_str
                     )
             else:
                 # No tool calls, we're done
@@ -388,3 +411,72 @@ class AgentLoop:
 
         response = await self._process_message(msg)
         return response.content if response else ""
+
+    async def _summarize_history(self, session: "Session") -> None:
+        """
+        Summarize conversation history if it exceeds the threshold.
+
+        Args:
+            session: The session to summarize.
+        """
+        if not self.brain_config.auto_summarize:
+            return
+
+        # Check threshold (default 40)
+        threshold = self.brain_config.summary_threshold
+        if len(session.messages) < threshold:
+            return
+
+        logger.info(f"Auto-summarizing session {session.key} (messages: {len(session.messages)})")
+
+        # Keep the last 10 messages, summarize the rest
+        keep_count = 10
+        to_summarize = session.messages[:-keep_count]
+        recent = session.messages[-keep_count:]
+
+        # Format messages for summarization
+        # Filter out system messages and existing summaries to avoid recursion/bloat if possible,
+        # but for simplicity we just dump them.
+        conversation_text = ""
+        for m in to_summarize:
+            role = m.get("role", "unknown")
+            content = m.get("content", "")
+            conversation_text += f"{role}: {content}\n"
+
+        # Ask LLM to summarize
+        prompt = f"""Summarize the following conversation history into a concise paragraph.
+Focus on key facts, user preferences, and important context that should be remembered.
+Ignore transient interactions.
+
+Conversation History:
+{conversation_text}
+"""
+        try:
+            # We use a simple system message + user prompt
+            messages = [
+                {"role": "system", "content": "You are a helpful assistant that summarizes conversations."},
+                {"role": "user", "content": prompt}
+            ]
+            response = await self.provider.chat(messages=messages, tools=[], model=self.model)
+            summary = response.content
+
+            if summary:
+                # Create a new summary message
+                # We mark it as 'system' but with a special prefix so we know it's a summary
+                summary_msg = {
+                    "role": "system",
+                    "content": f"[Previous Conversation Summary]: {summary}",
+                    "timestamp": datetime.now().isoformat(),
+                    "metadata": {"type": "summary"}
+                }
+                
+                # Replace old messages with summary + recent
+                # If there was already a summary at the top, we effectively merge it into the new one
+                # because we included it in 'conversation_text'.
+                session.messages = [summary_msg] + recent
+                self.sessions.save(session)
+                logger.info(f"Session {session.key} summarized. New length: {len(session.messages)}")
+
+        except Exception as e:
+            logger.error(f"Failed to auto-summarize session: {e}")
+

@@ -135,11 +135,24 @@ class Config(BaseSettings):
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
+    brain: BrainConfig = Field(default_factory=BrainConfig)
 
     @property
     def workspace_path(self) -> Path:
         """Get expanded workspace path."""
         return Path(self.agents.defaults.workspace).expanduser()
+
+class BrainConfig(BaseModel):
+    """Configuration for AI cognitive features."""
+    
+    auto_summarize: bool = True
+    light_rag: bool = True
+    safety_guard: bool = True
+    
+    # Advanced settings
+    memory_chunk_size: int = 500
+    summary_threshold: int = 40  # Messages count to trigger summary
+
 
     def _match_provider(self, model: str | None = None) -> ProviderConfig | None:
         """Match a provider based on model name."""

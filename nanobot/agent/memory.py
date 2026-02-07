@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from pathlib import Path
+import re
 
 from nanobot.utils.helpers import ensure_dir, today_date
 
@@ -43,9 +44,12 @@ class MemoryStore:
 
         today_file.write_text(content, encoding="utf-8")
 
-    def read_long_term(self) -> str:
+    def read_long_term(self, limit: int | None = None) -> str:
         """Read long-term memory (MEMORY.md)."""
         if self.memory_file.exists():
+            if limit:
+                with open(self.memory_file, "r", encoding="utf-8") as f:
+                    return f.read(limit)
             return self.memory_file.read_text(encoding="utf-8")
         return ""
 
@@ -87,9 +91,64 @@ class MemoryStore:
         files = list(self.memory_dir.glob("????-??-??.md"))
         return sorted(files, reverse=True)
 
-    def get_memory_context(self) -> str:
+    def search(self, query: str, top_k: int = 3) -> list[str]:
+        """
+        Search long-term memory using simple keyword matching (Light RAG).
+        
+        Args:
+            query: The search query.
+            top_k: Number of chunks to return.
+            
+        Returns:
+            List of relevant memory chunks.
+        """
+        if not self.memory_file.exists():
+            return []
+
+        content = self.memory_file.read_text(encoding="utf-8")
+        if not content:
+            return []
+
+        # Simple chunking by headers
+        chunks = []
+        current_chunk = []
+        
+        for line in content.splitlines():
+            if line.startswith("#") and current_chunk:
+                chunks.append("\n".join(current_chunk))
+                current_chunk = []
+            current_chunk.append(line)
+            
+        if current_chunk:
+            chunks.append("\n".join(current_chunk))
+
+        # Score chunks
+        query_terms = set(re.findall(r"\w+", query.lower()))
+        # Remove common stopwords to improve quality
+        stopwords = {"the", "is", "at", "which", "on", "a", "an", "and", "or", "but", "to", "for", "in", "with"}
+        query_terms = {t for t in query_terms if t not in stopwords and len(t) > 2}
+        
+        if not query_terms:
+            return []
+
+        scored_chunks = []
+        for chunk in chunks:
+            chunk_lower = chunk.lower()
+            score = sum(1 for term in query_terms if term in chunk_lower)
+            if score > 0:
+                scored_chunks.append((score, chunk))
+
+        # Sort by score desc
+        scored_chunks.sort(key=lambda x: x[0], reverse=True)
+        
+        return [chunk for score, chunk in scored_chunks[:top_k]]
+
+    def get_memory_context(self, query: str | None = None) -> str:
         """
         Get memory context for the agent.
+
+        Args:
+            query: Optional query to search memory with (Light RAG).
 
         Returns:
             Formatted memory context including long-term and recent memories.
@@ -97,9 +156,21 @@ class MemoryStore:
         parts = []
 
         # Long-term memory
-        long_term = self.read_long_term()
-        if long_term:
-            parts.append("## Long-term Memory\n" + long_term)
+        if query:
+            # Light RAG mode: Search for relevant chunks
+            hints = self.search(query)
+            if hints:
+                parts.append("## Relevant Memories (retrieved)\n" + "\n---\n".join(hints))
+            else:
+                 # Fallback to teaser if no hits
+                long_term = self.read_long_term(limit=1000)
+                if long_term:
+                    parts.append("## Long-term Memory (summary)\n" + long_term)
+        else:
+             # Default mode: Teaser
+            long_term = self.read_long_term(limit=2000)
+            if long_term:
+                parts.append("## Long-term Memory\n" + long_term)
 
         # Today's notes
         today = self.read_today()

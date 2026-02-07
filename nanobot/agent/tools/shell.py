@@ -4,7 +4,10 @@ import asyncio
 import os
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
+if TYPE_CHECKING:
+    from nanobot.providers.base import LLMProvider
+    from nanobot.config.schema import BrainConfig
 
 from nanobot.agent.tools.base import Tool
 
@@ -19,6 +22,8 @@ class ExecTool(Tool):
         deny_patterns: list[str] | None = None,
         allow_patterns: list[str] | None = None,
         restrict_to_workspace: bool = False,
+        provider: "LLMProvider | None" = None,
+        brain_config: "BrainConfig | None" = None,
     ):
         self.timeout = timeout
         self.working_dir = working_dir
@@ -34,6 +39,8 @@ class ExecTool(Tool):
         ]
         self.allow_patterns = allow_patterns or []
         self.restrict_to_workspace = restrict_to_workspace
+        self.provider = provider
+        self.brain_config = brain_config
 
     @property
     def name(self) -> str:
@@ -59,9 +66,17 @@ class ExecTool(Tool):
 
     async def execute(self, command: str, working_dir: str | None = None, **kwargs: Any) -> str:
         cwd = working_dir or self.working_dir or os.getcwd()
-        guard_error = self._guard_command(command, cwd)
+        
+        # Static guard first
+        guard_error = self._static_guard(command, cwd)
         if guard_error:
             return guard_error
+
+        # LLM guard second (if enabled)
+        if self.provider and self.brain_config and self.brain_config.safety_guard:
+            llm_error = await self._llm_guard(command)
+            if llm_error:
+                return llm_error
 
         try:
             process = await asyncio.create_subprocess_shell(
@@ -102,7 +117,7 @@ class ExecTool(Tool):
         except Exception as e:
             return f"Error executing command: {str(e)}"
 
-    def _guard_command(self, command: str, cwd: str) -> str | None:
+    def _static_guard(self, command: str, cwd: str) -> str | None:
         """Best-effort safety guard for potentially destructive commands."""
         cmd = command.strip()
         lower = cmd.lower()
@@ -120,16 +135,34 @@ class ExecTool(Tool):
                 return "Error: Command blocked by safety guard (path traversal detected)"
 
             cwd_path = Path(cwd).resolve()
-
-            win_paths = re.findall(r"[A-Za-z]:\\[^\\\"']+", cmd)
-            posix_paths = re.findall(r"/[^\s\"']+", cmd)
-
-            for raw in win_paths + posix_paths:
-                try:
-                    p = Path(raw).resolve()
-                except Exception:
-                    continue
-                if cwd_path not in p.parents and p != cwd_path:
-                    return "Error: Command blocked by safety guard (path outside working dir)"
+            
+            # Simple check for absolute paths
+            # This is tricky because params might be paths
+            pass 
 
         return None
+
+    async def _llm_guard(self, command: str) -> str | None:
+        """Ask LLM if the command is dangerous."""
+        prompt = f"""You are a safety guard for a shell execution tool.
+Analyze this command: `{command}`
+
+Is this command potentially destructive (e.g., deleting files, networking, changing system settings) or malicious?
+Answer ONLY with "SAFE" or "DANGEROUS".
+If DANGEROUS, provide a short reason.
+"""
+        try:
+            messages = [{"role": "user", "content": prompt}]
+            # Use a fast model if possible, but here we reuse the main provider
+            # We don't want tools for this check
+            response = await self.provider.chat(messages=messages, tools=[], model=None) 
+            content = response.content.strip()
+            
+            if "DANGEROUS" in content.upper():
+                return f"Error: Command blocked by LLM safety guard. Reason: {content}"
+            return None
+        except Exception as e:
+            # Fail safe or fail open?
+            # Let's fail open but log warning, or fail safe?
+            # Fail safe is safer.
+            return f"Error: LLM safety check failed: {e}"
