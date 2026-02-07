@@ -45,6 +45,32 @@ If you prefer to configure tools manually, you can edit the JSON files in `~/.na
 - **Fields**:
   - `brave_api_key`: Your Brave Search API key.
 
+### 🤖 LLM Providers
+- **File**: `~/.nanobot/config.json`
+- **Description**: Configure API keys and base URLs for your models in the `providers` array.
+- **Example Configuration**:
+  ```json
+  "providers": [
+    {
+      "name": "local-gemini",
+      "model": "gemini-3-flash",
+      "baseUrl": "http://127.0.0.1:8045/v1",
+      "apiKey": "YOUR_GEMINI_API_KEY"
+    },
+    {
+      "name": "qwen-7b",
+      "model": "Qwen/Qwen2.5-7B-Instruct",
+      "baseUrl": "https://api.siliconflow.cn/v1",
+      "apiKey": "YOUR_SILICONFLOW_API_KEY"
+    }
+  ]
+  ```
+- **Fields Reference**:
+  - `name`: Internal name used for routing (keep consistent with `SOUL.md` expert selection).
+  - `model`: The raw model name from the provider.
+  - `baseUrl`: The base URL for the API (must be OpenAI-compatible).
+  - `apiKey`: Your secret access token.
+
 ### 🧠 Brain / Intelligence Configuration
 - **File**: `~/.nanobot/config.json` (under `brain` field)
 - **Fields**:

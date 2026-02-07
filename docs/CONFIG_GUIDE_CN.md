@@ -45,7 +45,33 @@ Nanobot 会自动分析这些凭据，进行验证，并为您保存配置。
 - **字段**:
   - `brave_api_key`: 您的 Brave Search API 密钥。
 
-### 🧠 智能核心配置 (Brain)
+### � LLM 提供商 (Providers)
+- **文件**: `~/.nanobot/config.json`
+- **说明**: 在 `providers` 数组中配置模型的 API 密钥和地址。
+- **示例配置**:
+  ```json
+  "providers": [
+    {
+      "name": "local-gemini",
+      "model": "gemini-3-flash",
+      "baseUrl": "http://127.0.0.1:8045/v1",
+      "apiKey": "您的_GEMINI_API_KEY"
+    },
+    {
+      "name": "qwen-7b",
+      "model": "Qwen/Qwen2.5-7B-Instruct",
+      "baseUrl": "https://api.siliconflow.cn/v1",
+      "apiKey": "您的_SILICONFLOW_API_KEY"
+    }
+  ]
+  ```
+- **字段含义**:
+  - `name`: 智能体内部引用的名称（请在 `SOUL.md` 的专家选择部分保持一致）。
+  - `model`: 模型厂家的原始模型名称。
+  - `baseUrl`: API 的基础地址（OpenAI 兼容格式）。
+  - `apiKey`: 您的秘密访问令牌。
+
+### �🧠 智能核心配置 (Brain)
 - **文件**: `~/.nanobot/config.json` (位于 `brain` 字段下)
 - **字段**:
   - `auto_summarize`: (布尔值) 是否开启自动对话总结。开启后可支持超长对话。默认 `true`。
