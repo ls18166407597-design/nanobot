@@ -1,12 +1,12 @@
 import subprocess
-import shlex
 from typing import Any
 
 from nanobot.agent.tools.base import Tool
 
+
 class MacTool(Tool):
     """Tool for controlling local macOS system settings and applications."""
-    
+
     name = "mac_control"
     description = """
     Control macOS system settings and applications.
@@ -21,23 +21,29 @@ class MacTool(Tool):
             "action": {
                 "type": "string",
                 "enum": [
-                    "set_volume", "get_volume", "mute", "unmute",
-                    "open_app", "close_app", "list_apps",
-                    "battery", "system_stats"
+                    "set_volume",
+                    "get_volume",
+                    "mute",
+                    "unmute",
+                    "open_app",
+                    "close_app",
+                    "list_apps",
+                    "battery",
+                    "system_stats",
                 ],
-                "description": "The action to perform."
+                "description": "The action to perform.",
             },
             "value": {
                 "type": ["string", "integer"],
-                "description": "Value for the action (e.g. volume level 0-100, app name)."
-            }
+                "description": "Value for the action (e.g. volume level 0-100, app name).",
+            },
         },
-        "required": ["action"]
+        "required": ["action"],
     }
 
     async def execute(self, action: str, **kwargs: Any) -> str:
         value = kwargs.get("value")
-        
+
         try:
             if action == "set_volume":
                 if value is None:
@@ -96,7 +102,7 @@ class MacTool(Tool):
         cmd = ["open", "-a", app_name]
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
-             return f"Failed to open '{app_name}': {result.stderr.strip()}"
+            return f"Failed to open '{app_name}': {result.stderr.strip()}"
         return f"Opened '{app_name}'."
 
     def _close_app(self, app_name: str) -> str:
@@ -104,18 +110,21 @@ class MacTool(Tool):
         script = f'tell application "{app_name}" to quit'
         try:
             self._run_osascript(script)
-            
+
             # Verification step: Wait a bit and check if still running
             import time
-            time.sleep(2) # Give it 2 seconds to close
-            
-            check_script = f'tell application "System Events" to exists (processes where name is "{app_name}")'
+
+            time.sleep(2)  # Give it 2 seconds to close
+
+            check_script = (
+                f'tell application "System Events" to exists (processes where name is "{app_name}")'
+            )
             exists = self._run_osascript(check_script)
-            
+
             if exists == "true":
                 # If still running, maybe try a bit more force? or just report it
                 return f"Sent close command to '{app_name}', but it is still running (it might have an unsaved changes dialog)."
-            
+
             return f"Successfully verified: '{app_name}' has been closed."
         except Exception as e:
             return f"Failed to close '{app_name}': {str(e)}"
@@ -132,8 +141,8 @@ class MacTool(Tool):
 
     def _get_system_stats(self) -> str:
         # Simple top summary
-        cmd = ["top", "-l", "1", "-n", "0"] # -l 1 sample, -n 0 lines of processes (header only)
+        cmd = ["top", "-l", "1", "-n", "0"]  # -l 1 sample, -n 0 lines of processes (header only)
         result = subprocess.run(cmd, capture_output=True, text=True)
         # top header contains the info
-        lines = result.stdout.splitlines()[:15] # Grab first few lines
+        lines = result.stdout.splitlines()[:15]  # Grab first few lines
         return "\n".join(lines)

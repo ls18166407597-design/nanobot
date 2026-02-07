@@ -1,19 +1,20 @@
-import os
-import json
-import imaplib
-import smtplib
 import email
-from email.message import EmailMessage
+import imaplib
+import json
+import os
+import smtplib
 from email.header import decode_header
+from email.message import EmailMessage
 from typing import Any
 
 from nanobot.agent.tools.base import Tool
 
 CONFIG_PATH = os.path.expanduser("~/.nanobot/gmail_config.json")
 
+
 class GmailTool(Tool):
     """Tool for interacting with Gmail via IMAP/SMTP (App Password)."""
-    
+
     name = "gmail"
     description = """
     Interact with Gmail using standard protocols (IMAP/SMTP).
@@ -21,7 +22,7 @@ class GmailTool(Tool):
     - List recent emails
     - Read emails
     - Send emails
-    
+
     Setup:
     Requires '~/.nanobot/gmail_config.json' with:
     {
@@ -35,52 +36,37 @@ class GmailTool(Tool):
             "action": {
                 "type": "string",
                 "enum": ["list", "read", "send", "setup"],
-                "description": "The action to perform."
+                "description": "The action to perform.",
             },
             "limit": {
                 "type": "integer",
-                "description": "Max number of emails to list (default 10)."
+                "description": "Max number of emails to list (default 10).",
             },
-            "email_id": {
-                "type": "string",
-                "description": "The ID of the email to read."
-            },
-            "to": {
-                "type": "string",
-                "description": "Recipient email address (for 'send')."
-            },
-            "subject": {
-                "type": "string",
-                "description": "Email subject (for 'send')."
-            },
-            "body": {
-                "type": "string",
-                "description": "Email body content (for 'send')."
-            },
-            "setup_email": {
-                "type": "string",
-                "description": "Email for setup."
-            },
+            "email_id": {"type": "string", "description": "The ID of the email to read."},
+            "to": {"type": "string", "description": "Recipient email address (for 'send')."},
+            "subject": {"type": "string", "description": "Email subject (for 'send')."},
+            "body": {"type": "string", "description": "Email body content (for 'send')."},
+            "setup_email": {"type": "string", "description": "Email for setup."},
             "setup_password": {
                 "type": "string",
-                "description": "App password for setup."
-            }
+                "description": "App password for setup.",
+            },
         },
-        "required": ["action"]
+        "required": ["action"],
     }
 
     def _load_config(self):
         if not os.path.exists(CONFIG_PATH):
             return None
         try:
-            with open(CONFIG_PATH, 'r') as f:
+            with open(CONFIG_PATH, "r") as f:
                 return json.load(f)
         except Exception:
             return None
 
     def _save_config(self, email, password):
         os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
-        with open(CONFIG_PATH, 'w') as f:
+        with open(CONFIG_PATH, "w") as f:
             json.dump({"email": email, "password": password}, f)
 
     async def execute(self, action: str, **kwargs: Any) -> str:
@@ -118,42 +104,42 @@ class GmailTool(Tool):
 
         _, search_data = mail.search(None, "ALL")
         mail_ids = search_data[0].split()
-        
+
         # Get last N emails
         recent_ids = mail_ids[-limit:]
-        
+
         output = []
         for i in reversed(recent_ids):
             _, msg_data = mail.fetch(i, "(RFC822)")
             raw_email = msg_data[0][1]
             msg = email.message_from_bytes(raw_email)
-            
+
             subject = self._decode_header(msg["Subject"])
             from_addr = self._decode_header(msg["From"])
-            
+
             output.append(f"ID: {i.decode()} | From: {from_addr} | Subject: {subject}")
-            
+
         mail.logout()
         if not output:
-             return "No emails found."
+            return "No emails found."
         return "\n".join(output)
 
     def _read_email(self, config, email_id):
         mail = imaplib.IMAP4_SSL("imap.gmail.com")
         mail.login(config["email"], config["password"])
         mail.select("inbox")
-        
+
         _, msg_data = mail.fetch(email_id, "(RFC822)")
         if not msg_data or msg_data[0] is None:
             return "Email not found."
-            
+
         raw_email = msg_data[0][1]
         msg = email.message_from_bytes(raw_email)
-        
+
         subject = self._decode_header(msg["Subject"])
         from_addr = self._decode_header(msg["From"])
         date = self._decode_header(msg["Date"])
-        
+
         body = ""
         if msg.is_multipart():
             for part in msg.walk():
@@ -161,14 +147,14 @@ class GmailTool(Tool):
                 if content_type == "text/plain":
                     try:
                         body += part.get_payload(decode=True).decode()
-                    except:
+                    except Exception:
                         pass
         else:
             try:
                 body = msg.get_payload(decode=True).decode()
-            except:
+            except Exception:
                 pass
-                
+
         mail.logout()
         return f"From: {from_addr}\nDate: {date}\nSubject: {subject}\n\nBody:\n{body[:2000]}..."
 
@@ -176,7 +162,7 @@ class GmailTool(Tool):
         to = kwargs.get("to")
         subject = kwargs.get("subject")
         body = kwargs.get("body")
-        
+
         if not to or not subject or not body:
             return "Error: 'to', 'subject', and 'body' are required for sending."
 
@@ -189,7 +175,7 @@ class GmailTool(Tool):
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
             smtp.login(config["email"], config["password"])
             smtp.send_message(msg)
-            
+
         return "Email sent successfully."
 
     def _decode_header(self, header):
@@ -201,11 +187,11 @@ class GmailTool(Tool):
             if isinstance(decoded_bytes, bytes):
                 if charset:
                     try:
-                         text += decoded_bytes.decode(charset)
-                    except:
-                         text += decoded_bytes.decode('utf-8', errors='ignore')
+                        text += decoded_bytes.decode(charset)
+                    except Exception:
+                        text += decoded_bytes.decode("utf-8", errors="ignore")
                 else:
-                    text += decoded_bytes.decode('utf-8', errors='ignore')
+                    text += decoded_bytes.decode("utf-8", errors="ignore")
             else:
                 text += str(decoded_bytes)
         return text
