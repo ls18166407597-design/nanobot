@@ -77,6 +77,7 @@ class ChannelManager:
                 logger.info("Feishu channel enabled")
             except ImportError as e:
                 logger.warning(f"Feishu channel not available: {e}")
+
     
     async def start_all(self) -> None:
         """Start WhatsApp channel and the outbound dispatcher."""

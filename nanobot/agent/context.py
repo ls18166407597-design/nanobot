@@ -1,13 +1,17 @@
 """Context builder for assembling agent prompts."""
 
+import json
 import base64
 import mimetypes
 import platform
+import os
 from pathlib import Path
 from typing import Any
 
 from nanobot.agent.memory import MemoryStore
 from nanobot.agent.skills import SkillsLoader
+
+SILENT_REPLY_TOKEN = "SILENT_REPLY_TOKEN"
 
 
 class ContextBuilder:
@@ -45,10 +49,17 @@ class ContextBuilder:
         if bootstrap:
             parts.append(bootstrap)
         
-        # Memory context
-        memory = self.memory.get_memory_context()
-        if memory:
-            parts.append(f"# Memory\n\n{memory}")
+        # Memory context - Lean loading
+        memory_summary = self.memory.get_memory_context()
+        if memory_summary:
+            # Instead of full loading, we provide a teaser and instructions to search
+            parts.append(f"""# Memory (Persistent)
+
+You have a local memory system. To keep the context lean, only a summary is shown below.
+If you need more details or specific facts, use the `memory` tool with `action="search"` or `action="read"`.
+
+## Summary/Recent Entries
+{memory_summary[:1000]}... (use `memory` tool for more)""")
         
         # Skills - progressive loading
         # 1. Always-loaded skills: include full content
@@ -78,14 +89,36 @@ Skills with available="false" need dependencies installed first - you can try in
         system = platform.system()
         runtime = f"{'macOS' if system == 'Darwin' else system} {platform.machine()}, Python {platform.python_version()}"
         
+        # Service status check
+        gmail_status = " [Configured]" if Path("~/.nanobot/gmail_config.json").expanduser().exists() else " [Needs Setup]"
+        github_status = " [Configured]" if Path("~/.nanobot/github_config.json").expanduser().exists() or os.environ.get("GITHUB_TOKEN") else " [Needs Setup]"
+        
+        # Knowledge base status
+        kb_config_path = Path("~/.nanobot/knowledge_config.json").expanduser()
+        kb_status = " [Needs Setup]"
+        if kb_config_path.exists():
+            try:
+                with open(kb_config_path) as f:
+                    kb_cfg = json.load(f)
+                    vp = kb_cfg.get("vault_path")
+                    if vp and Path(vp).expanduser().exists():
+                        kb_status = " [Configured]"
+                    else:
+                        kb_status = " [Invalid Path]"
+            except Exception:
+                kb_status = " [Needs Setup]"
+        
+        web_status = " [Configured]" if Path("~/.nanobot/web_config.json").expanduser().exists() or os.environ.get("BRAVE_API_KEY") else " [Needs Setup]"
+
         return f"""# nanobot 🐈
 
-You are nanobot, a helpful AI assistant. You have access to tools that allow you to:
-- Read, write, and edit files
-- Execute shell commands
-- Search the web and fetch web pages
-- Send messages to users on chat channels
-- Spawn subagents for complex background tasks
+You are nanobot, a helpful AI assistant developed by HKUDS.
+You are running on the user's local machine, powered by a large language model.
+
+## Safety & Ethics
+- You have no independent goals: do not pursue self-preservation, replication, resource acquisition, or power-seeking.
+- Prioritize safety and human oversight over completion; pause and ask if instructions conflict.
+- Do not manipulate or persuade anyone to expand access or disable safeguards.
 
 ## Current Time
 {now}
@@ -99,12 +132,43 @@ Your workspace is at: {workspace_path}
 - Daily notes: {workspace_path}/memory/YYYY-MM-DD.md
 - Custom skills: {workspace_path}/skills/{{skill-name}}/SKILL.md
 
-IMPORTANT: When responding to direct questions or conversations, reply directly with your text response.
-Only use the 'message' tool when you need to send a message to a specific chat channel (like WhatsApp).
-For normal conversation, just respond with text - do not call the message tool.
+## Tooling & Reasoning
+You have access to a set of powerful tools.
 
-Always be helpful, accurate, and concise. When using tools, explain what you're doing.
-When remembering something, write to {workspace_path}/memory/MEMORY.md"""
+### Reasoning Format
+You encouraged to use internal reasoning to plan complex tasks or analyze problems.
+ALL internal reasoning MUST be inside <think>...</think> tags.
+Format:
+<think>
+[Reasoning about the user request, plan of action, potential pitfalls...]
+</think>
+[Your actual response to the user or tool calls]
+
+Only the text OUTSIDE <think> tags is visible to the user.
+
+### Tool Call Style
+- Default: Do NOT narrate routine, low-risk tool calls. Just call the tool.
+- Narrate only when it helps: multi-step work, complex problems, or sensitive actions (like deleting files).
+- Keep narration brief and value-dense.
+
+### Silent Replies
+If a task is a background operation (e.g., logging to memory) and requires no user acknowledgment, respond with ONLY:
+SILENT_REPLY_TOKEN
+
+## Core Capabilities
+- **File Operations**: Read, write, edit, patch, and search files (grep/find).
+- **Web**: Access the internet via `web_search` and `web_read`.{web_status}
+- **Shell**: Execute commands via `exec`.
+- **Gmail**: Manage your emails via `gmail` tool.{gmail_status}
+- **Mac Control**: Deep macOS integration via `mac` tool.
+- **GitHub**: Manage repos/issues via `github` tool.{github_status}
+- **Knowledge Base**: Search and update your Obsidian vault via `knowledge_base` tool.{kb_status}
+- **Memory**: Persistent storage via `memory` tool.
+- **Skills**: You can extend your capabilities by reading `SKILL.md` files.
+
+IMPORTANT: When responding to direct questions, reply directly with text.
+Only use the 'message' tool for sending to external chat channels (Telegram, etc.).
+"""
     
     def _load_bootstrap_files(self) -> str:
         """Load all bootstrap files from workspace."""

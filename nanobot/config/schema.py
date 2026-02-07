@@ -39,6 +39,8 @@ class DiscordConfig(BaseModel):
     intents: int = 37377  # GUILDS + GUILD_MESSAGES + DIRECT_MESSAGES + MESSAGE_CONTENT
 
 
+
+
 class ChannelsConfig(BaseModel):
     """Configuration for chat channels."""
     whatsapp: WhatsAppConfig = Field(default_factory=WhatsAppConfig)
@@ -176,6 +178,9 @@ class Config(BaseSettings):
         if any(k in model for k in ("zhipu", "glm", "zai")):
             return self.providers.zhipu.api_base
         if "vllm" in model:
+            return self.providers.vllm.api_base
+        # Fallback to vLLM/Local if configured (allows using any model name with local proxy)
+        if self.providers.vllm.api_base:
             return self.providers.vllm.api_base
         return None
     

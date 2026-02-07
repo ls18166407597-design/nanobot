@@ -43,27 +43,58 @@ def _validate_url(url: str) -> tuple[bool, str]:
         return False, str(e)
 
 
+CONFIG_PATH = os.path.expanduser("~/.nanobot/web_config.json")
+
 class WebSearchTool(Tool):
     """Search the web using Brave Search API."""
     
     name = "web_search"
-    description = "Search the web. Returns titles, URLs, and snippets."
+    description = """
+    Search the web. Returns titles, URLs, and snippets.
+    
+    Setup:
+    Requires 'BRAVE_API_KEY' in environment or '~/.nanobot/web_config.json' with:
+    { "api_key": "your_brave_key" }
+    """
     parameters = {
         "type": "object",
         "properties": {
             "query": {"type": "string", "description": "Search query"},
-            "count": {"type": "integer", "description": "Results (1-10)", "minimum": 1, "maximum": 10}
+            "count": {"type": "integer", "description": "Results (1-10)", "minimum": 1, "maximum": 10},
+            "action": {"type": "string", "enum": ["search", "setup"], "description": "Action to perform"},
+            "setup_key": {"type": "string", "description": "Brave API Key for setup"}
         },
-        "required": ["query"]
+        "required": ["query"] # query is only required for search
     }
     
     def __init__(self, api_key: str | None = None, max_results: int = 5):
-        self.api_key = api_key or os.environ.get("BRAVE_API_KEY", "")
         self.max_results = max_results
+        self._api_key = api_key or os.environ.get("BRAVE_API_KEY", "")
     
-    async def execute(self, query: str, count: int | None = None, **kwargs: Any) -> str:
-        if not self.api_key:
-            return "Error: BRAVE_API_KEY not configured"
+    def _load_config(self):
+        if os.path.exists(CONFIG_PATH):
+            try:
+                with open(CONFIG_PATH, 'r') as f:
+                    return json.load(f).get("api_key")
+            except: pass
+        return None
+
+    def _save_config(self, key):
+        os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
+        with open(CONFIG_PATH, 'w') as f:
+            json.dump({"api_key": key}, f)
+
+    async def execute(self, query: str = "", count: int | None = None, action: str = "search", **kwargs: Any) -> str:
+        if action == "setup":
+            key = kwargs.get("setup_key")
+            if not key: return "Error: 'setup_key' is required for setup."
+            self._save_config(key)
+            self._api_key = key
+            return "Web Search configuration saved successfully."
+
+        api_key = self._api_key or self._load_config()
+        if not api_key:
+            return "Error: BRAVE_API_KEY not configured. Use action='setup' with setup_key."
         
         try:
             n = min(max(count or self.max_results, 1), 10)
@@ -71,7 +102,7 @@ class WebSearchTool(Tool):
                 r = await client.get(
                     "https://api.search.brave.com/res/v1/web/search",
                     params={"q": query, "count": n},
-                    headers={"Accept": "application/json", "X-Subscription-Token": self.api_key},
+                    headers={"Accept": "application/json", "X-Subscription-Token": api_key},
                     timeout=10.0
                 )
                 r.raise_for_status()

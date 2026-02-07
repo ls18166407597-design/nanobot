@@ -142,6 +142,50 @@ write_file(
 
 ---
 
+## Personal Assistant Capabilities
+
+### gmail
+Manage emails using App Passwords (IMAP/SMTP).
+```python
+gmail(action="list", limit=5)
+gmail(action="read", index=1)
+gmail(action="send", to="recipient@example.com", subject="Hello", body="Content")
+```
+
+### mac
+Control macOS system settings and applications.
+```python
+mac(action="set_volume", value=50) # 0-100
+mac(action="open_app", value="Notes")
+mac(action="battery")
+mac(action="system_stats")
+```
+
+### github
+Advanced GitHub integration (Issue/PR/Repo).
+```python
+github(action="list_issues", repo="owner/repo")
+github(action="create_issue", repo="owner/repo", title="Title", body="Content")
+github(action="list_repos")
+```
+
+### knowledge
+Interact with local Markdown knowledge base (Obsidian style).
+```python
+knowledge(action="search_notes", query="topic")
+knowledge(action="append_daily", content="Entry for today")
+```
+
+### memory
+Active long-term memory management for Nanobot.
+```python
+memory(action="append_daily", content="Remember: user likes Python")
+memory(action="search", query="preference")
+memory(action="update_long_term", content="Full aggregated facts...")
+```
+
+---
+
 ## Adding Custom Tools
 
 To add custom tools:

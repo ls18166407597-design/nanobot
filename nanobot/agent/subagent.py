@@ -15,6 +15,11 @@ from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.agent.tools.filesystem import ReadFileTool, WriteFileTool, ListDirTool
 from nanobot.agent.tools.shell import ExecTool
 from nanobot.agent.tools.web import WebSearchTool, WebFetchTool
+from nanobot.agent.tools.gmail import GmailTool
+from nanobot.agent.tools.mac import MacTool
+from nanobot.agent.tools.github import GitHubTool
+from nanobot.agent.tools.knowledge import KnowledgeTool
+from nanobot.agent.tools.memory import MemoryTool
 
 
 class SubagentManager:
@@ -50,6 +55,8 @@ class SubagentManager:
         self,
         task: str,
         label: str | None = None,
+        model: str | None = None,
+        thinking: bool = False,
         origin_channel: str = "cli",
         origin_chat_id: str = "direct",
     ) -> str:
@@ -75,7 +82,7 @@ class SubagentManager:
         
         # Create background task
         bg_task = asyncio.create_task(
-            self._run_subagent(task_id, task, display_label, origin)
+            self._run_subagent(task_id, task, display_label, origin, model, thinking)
         )
         self._running_tasks[task_id] = bg_task
         
@@ -91,6 +98,8 @@ class SubagentManager:
         task: str,
         label: str,
         origin: dict[str, str],
+        model_override: str | None,
+        thinking: bool,
     ) -> None:
         """Execute the subagent task and announce the result."""
         logger.info(f"Subagent [{task_id}] starting task: {label}")
@@ -109,9 +118,14 @@ class SubagentManager:
             ))
             tools.register(WebSearchTool(api_key=self.brave_api_key))
             tools.register(WebFetchTool())
+            tools.register(GmailTool())
+            tools.register(MacTool())
+            tools.register(GitHubTool())
+            tools.register(KnowledgeTool())
+            tools.register(MemoryTool(workspace=self.workspace))
             
             # Build messages with subagent-specific prompt
-            system_prompt = self._build_subagent_prompt(task)
+            system_prompt = self._build_subagent_prompt(task, thinking)
             messages: list[dict[str, Any]] = [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": task},
@@ -122,13 +136,15 @@ class SubagentManager:
             iteration = 0
             final_result: str | None = None
             
+            run_model = model_override or self.model
+            
             while iteration < max_iterations:
                 iteration += 1
                 
                 response = await self.provider.chat(
                     messages=messages,
                     tools=tools.get_definitions(),
-                    model=self.model,
+                    model=run_model,
                 )
                 
                 if response.has_tool_calls:
@@ -208,10 +224,18 @@ Summarize this naturally for the user. Keep it brief (1-2 sentences). Do not men
         await self.bus.publish_inbound(msg)
         logger.debug(f"Subagent [{task_id}] announced result to {origin['channel']}:{origin['chat_id']}")
     
-    def _build_subagent_prompt(self, task: str) -> str:
+    def _build_subagent_prompt(self, task: str, thinking: bool = False) -> str:
         """Build a focused system prompt for the subagent."""
+        thinking_instr = ""
+        if thinking:
+            thinking_instr = """
+        IMPORTANT: You must use internal reasoning for every step.
+        Wrap your reasoning in <think>...</think> tags.
+        Analyze the problem, plan your approach, and verify your findings.
+        """
+        
         return f"""# Subagent
-
+        {thinking_instr}
 You are a subagent spawned by the main agent to complete a specific task.
 
 ## Your Task

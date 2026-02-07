@@ -18,6 +18,11 @@ from nanobot.agent.tools.web import WebSearchTool, WebFetchTool
 from nanobot.agent.tools.message import MessageTool
 from nanobot.agent.tools.spawn import SpawnTool
 from nanobot.agent.tools.cron import CronTool
+from nanobot.agent.tools.gmail import GmailTool
+from nanobot.agent.tools.mac import MacTool
+from nanobot.agent.tools.github import GitHubTool
+from nanobot.agent.tools.knowledge import KnowledgeTool
+from nanobot.agent.tools.memory import MemoryTool
 from nanobot.agent.subagent import SubagentManager
 from nanobot.session.manager import SessionManager
 
@@ -105,6 +110,22 @@ class AgentLoop:
         # Cron tool (for scheduling)
         if self.cron_service:
             self.tools.register(CronTool(self.cron_service))
+            
+        # Gmail tool
+        self.tools.register(GmailTool())
+        
+        # Mac tool
+        self.tools.register(MacTool())
+        
+        # GitHub tool
+        self.tools.register(GitHubTool())
+        
+        # Knowledge tool
+        self.tools.register(KnowledgeTool())
+        
+        # Memory tool (active management)
+        self.tools.register(MemoryTool(workspace=self.workspace))
+
     
     async def run(self) -> None:
         """Run the agent loop, processing messages from the bus."""

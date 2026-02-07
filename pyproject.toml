@@ -30,6 +30,10 @@ dependencies = [
     "croniter>=2.0.0",
     "python-telegram-bot>=21.0",
     "lark-oapi>=1.0.0",
+    "google-api-python-client>=2.0.0",
+    "google-auth-oauthlib>=1.0.0",
+    "google-auth>=2.0.0",
+    "PyGithub>=2.0.0",
 ]
 
 [project.optional-dependencies]
