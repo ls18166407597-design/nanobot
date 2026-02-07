@@ -93,30 +93,32 @@ class LiteLLMProvider(LLMProvider):
         if self.is_openrouter and not model.startswith("openrouter/"):
             model = f"openrouter/{model}"
 
-        # For Zhipu/Z.ai, ensure prefix is present
-        # Handle cases like "glm-4.7-flash" -> "zai/glm-4.7-flash"
-        if ("glm" in model.lower() or "zhipu" in model.lower()) and not (
-            model.startswith("zhipu/")
-            or model.startswith("zai/")
-            or model.startswith("openrouter/")
-        ):
-            model = f"zai/{model}"
+        # Skip provider-specific prefixes if using custom vLLM/OpenAI-compatible endpoint
+        if not self.is_vllm:
+            # For Zhipu/Z.ai, ensure prefix is present
+            # Handle cases like "glm-4.7-flash" -> "zai/glm-4.7-flash"
+            if ("glm" in model.lower() or "zhipu" in model.lower()) and not (
+                model.startswith("zhipu/")
+                or model.startswith("zai/")
+                or model.startswith("openrouter/")
+            ):
+                model = f"zai/{model}"
 
-        # For DashScope/Qwen, ensure dashscope/ prefix
-        if ("qwen" in model.lower() or "dashscope" in model.lower()) and not (
-            model.startswith("dashscope/") or model.startswith("openrouter/")
-        ):
-            model = f"dashscope/{model}"
+            # For DashScope/Qwen, ensure dashscope/ prefix
+            if ("qwen" in model.lower() or "dashscope" in model.lower()) and not (
+                model.startswith("dashscope/") or model.startswith("openrouter/")
+            ):
+                model = f"dashscope/{model}"
 
-        # For Moonshot/Kimi, ensure moonshot/ prefix (before vLLM check)
-        if ("moonshot" in model.lower() or "kimi" in model.lower()) and not (
-            model.startswith("moonshot/") or model.startswith("openrouter/")
-        ):
-            model = f"moonshot/{model}"
+            # For Moonshot/Kimi, ensure moonshot/ prefix (before vLLM check)
+            if ("moonshot" in model.lower() or "kimi" in model.lower()) and not (
+                model.startswith("moonshot/") or model.startswith("openrouter/")
+            ):
+                model = f"moonshot/{model}"
 
-        # For Gemini, ensure gemini/ prefix if not already present
-        if "gemini" in model.lower() and not model.startswith("gemini/"):
-            model = f"gemini/{model}"
+            # For Gemini, ensure gemini/ prefix if not already present
+            if "gemini" in model.lower() and not model.startswith("gemini/"):
+                model = f"gemini/{model}"
 
         # For vLLM, use hosted_vllm/ prefix per LiteLLM docs
         # Convert openai/ prefix to hosted_vllm/ if user specified it

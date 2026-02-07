@@ -22,6 +22,7 @@ class GmailTool(Tool):
     - List recent emails
     - Read emails
     - Send emails
+    - Check mailbox status (total count, unread count)
 
     Setup:
     Requires '~/.nanobot/gmail_config.json' with:
@@ -35,7 +36,7 @@ class GmailTool(Tool):
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["list", "read", "send", "setup"],
+                "enum": ["list", "read", "send", "setup", "status"],
                 "description": "The action to perform.",
             },
             "limit": {
@@ -92,6 +93,8 @@ class GmailTool(Tool):
                 return self._read_email(config, email_id)
             elif action == "send":
                 return self._send_email(config, kwargs)
+            elif action == "status":
+                return self._status(config)
             else:
                 return f"Unknown action: {action}"
         except Exception as e:
@@ -111,13 +114,18 @@ class GmailTool(Tool):
         output = []
         for i in reversed(recent_ids):
             _, msg_data = mail.fetch(i, "(RFC822)")
+            if not msg_data or msg_data[0] is None:
+                continue
             raw_email = msg_data[0][1]
+            if not isinstance(raw_email, bytes):
+                continue
             msg = email.message_from_bytes(raw_email)
 
             subject = self._decode_header(msg["Subject"])
             from_addr = self._decode_header(msg["From"])
 
-            output.append(f"ID: {i.decode()} | From: {from_addr} | Subject: {subject}")
+            email_id_str = i.decode() if isinstance(i, bytes) else str(i)
+            output.append(f"ID: {email_id_str} | From: {from_addr} | Subject: {subject}")
 
         mail.logout()
         if not output:
@@ -134,6 +142,9 @@ class GmailTool(Tool):
             return "Email not found."
 
         raw_email = msg_data[0][1]
+        if not isinstance(raw_email, bytes):
+            return "Error: Fetched message is not in expected format."
+            
         msg = email.message_from_bytes(raw_email)
 
         subject = self._decode_header(msg["Subject"])
@@ -145,15 +156,13 @@ class GmailTool(Tool):
             for part in msg.walk():
                 content_type = part.get_content_type()
                 if content_type == "text/plain":
-                    try:
-                        body += part.get_payload(decode=True).decode()
-                    except Exception:
-                        pass
+                    payload = part.get_payload(decode=True)
+                    if isinstance(payload, bytes):
+                        body += payload.decode(errors="ignore")
         else:
-            try:
-                body = msg.get_payload(decode=True).decode()
-            except Exception:
-                pass
+            payload = msg.get_payload(decode=True)
+            if isinstance(payload, bytes):
+                body = payload.decode(errors="ignore")
 
         mail.logout()
         return f"From: {from_addr}\nDate: {date}\nSubject: {subject}\n\nBody:\n{body[:2000]}..."
@@ -195,3 +204,29 @@ class GmailTool(Tool):
             else:
                 text += str(decoded_bytes)
         return text
+
+    def _status(self, config):
+        """Get mailbox status (total and unread count)."""
+        mail = imaplib.IMAP4_SSL("imap.gmail.com")
+        mail.login(config["email"], config["password"])
+        
+        # STATUS command allows checking folder status without selecting it
+        # Request MESSAGES (total) and UNSEEN (unread) counts
+        typ, data = mail.status("INBOX", "(MESSAGES UNSEEN)")
+        mail.logout()
+
+        if typ != "OK":
+            return "Error: Failed to retrieve mailbox status."
+
+        # Response format: b'"INBOX" (MESSAGES 123 UNSEEN 5)'
+        status_str = data[0].decode()
+        
+        # Simple parsing
+        import re
+        total_match = re.search(r"MESSAGES\s+(\d+)", status_str)
+        unread_match = re.search(r"UNSEEN\s+(\d+)", status_str)
+        
+        total = total_match.group(1) if total_match else "?"
+        unread = unread_match.group(1) if unread_match else "?"
+        
+        return f"📧 Inbox Status:\n- Total Emails: {total}\n- Unread Emails: {unread}"

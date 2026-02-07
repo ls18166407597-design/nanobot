@@ -1,9 +1,11 @@
 import datetime
 import json
 import os
+from pathlib import Path
 from typing import Any
 
 from nanobot.agent.tools.base import Tool
+from nanobot.utils.helpers import safe_resolve_path, ensure_dir
 
 CONFIG_PATH = os.path.expanduser("~/.nanobot/knowledge_config.json")
 
@@ -152,11 +154,13 @@ class KnowledgeTool(Tool):
     def _read_note(self, root, filename):
         if not filename:
             return "Error: 'filename' required."
-        path = os.path.join(root, filename)
-        if not os.path.exists(path):
-            return f"Error: File '{filename}' not found."
-        with open(path, "r", errors="ignore") as f:
-            return f.read()
+        try:
+            path = safe_resolve_path(os.path.join(root, filename), Path(root))
+            if not path.exists():
+                return f"Error: File '{filename}' not found."
+            return path.read_text(encoding="utf-8", errors="ignore")
+        except PermissionError as e:
+            return str(e)
 
     def _create_note(self, root, filename, content, folder):
         if not filename or not content:
@@ -164,19 +168,22 @@ class KnowledgeTool(Tool):
         if not filename.endswith(".md"):
             filename += ".md"
 
-        target_dir = root
-        if folder:
-            target_dir = os.path.join(root, folder)
+        try:
+            target_dir = os.path.join(root, folder) if folder else root
+            # First validate the folder
+            safe_target_dir = safe_resolve_path(target_dir, Path(root))
+            
+            # Then validate the file itself
+            path = safe_resolve_path(os.path.join(str(safe_target_dir), filename), Path(root))
 
-        os.makedirs(target_dir, exist_ok=True)
-        path = os.path.join(target_dir, filename)
+            if path.exists():
+                return "Error: File already exists. Use append or different name."
 
-        if os.path.exists(path):
-            return "Error: File already exists. Use append or different name."
-
-        with open(path, "w") as f:
-            f.write(content)
-        return f"Created note: {os.path.relpath(path, root)}"
+            ensure_dir(path.parent)
+            path.write_text(content, encoding="utf-8")
+            return f"Created note: {os.path.relpath(path, root)}"
+        except PermissionError as e:
+            return str(e)
 
     def _append_daily(self, root, daily_folder, content):
         if not content:
@@ -202,13 +209,16 @@ class KnowledgeTool(Tool):
         return f"Appended to daily note: {os.path.relpath(path, root)}"
 
     def _list_files(self, root, folder):
-        target_dir = os.path.join(root, folder) if folder else root
-        if not os.path.exists(target_dir):
-            return "Folder not found."
+        try:
+            target_dir = safe_resolve_path(os.path.join(root, folder) if folder else root, Path(root))
+            if not target_dir.exists():
+                return "Folder not found."
 
-        files = []
-        for f in os.listdir(target_dir):
-            if f.startswith("."):
-                continue
-            files.append(f)
-        return "\n".join(files[:50])
+            files = []
+            for f in os.listdir(target_dir):
+                if f.startswith("."):
+                    continue
+                files.append(f)
+            return "\n".join(files[:50])
+        except PermissionError as e:
+            return str(e)

@@ -7,7 +7,7 @@ if TYPE_CHECKING:
     from nanobot.session.manager import Session
 
 if TYPE_CHECKING:
-    from nanobot.config.schema import BrainConfig, ExecToolConfig
+    from nanobot.config.schema import BrainConfig, ExecToolConfig, ProvidersConfig
     from nanobot.cron.service import CronService
 
 from loguru import logger
@@ -25,13 +25,16 @@ from nanobot.agent.tools.github import GitHubTool
 from nanobot.agent.tools.gmail import GmailTool
 from nanobot.agent.tools.knowledge import KnowledgeTool
 from nanobot.agent.tools.mac import MacTool
+from nanobot.agent.tools.mac_vision import MacVisionTool
 from nanobot.agent.tools.memory import MemoryTool
 from nanobot.agent.tools.message import MessageTool
 from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.agent.tools.shell import ExecTool
 from nanobot.agent.tools.skills import SkillsTool
 from nanobot.agent.tools.spawn import SpawnTool
-from nanobot.agent.tools.web import WebFetchTool, WebSearchTool
+from nanobot.agent.tools.browser import BrowserTool
+from nanobot.agent.models import ModelRegistry
+from nanobot.agent.tools.provider import ProviderTool
 from nanobot.bus.events import InboundMessage, OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.providers.base import LLMProvider
@@ -57,40 +60,112 @@ class AgentLoop:
         workspace: Path,
         model: str | None = None,
         max_iterations: int = 20,
-        brave_api_key: str | None = None,
         exec_config: "ExecToolConfig | None" = None,
         cron_service: "CronService | None" = None,
         restrict_to_workspace: bool = False,
         brain_config: "BrainConfig | None" = None,
+        providers_config: "ProvidersConfig | None" = None,
     ):
         self.bus = bus
         self.provider = provider
         self.workspace = workspace
         self.model = model or provider.get_default_model()
         self.max_iterations = max_iterations
-        self.brave_api_key = brave_api_key
-        from nanobot.config.schema import BrainConfig, ExecToolConfig
+        from nanobot.config.schema import BrainConfig, ExecToolConfig, ProvidersConfig
 
         self.exec_config = exec_config or ExecToolConfig()
         self.cron_service = cron_service
         self.restrict_to_workspace = restrict_to_workspace
         self.brain_config = brain_config or BrainConfig()
 
-        self.context = ContextBuilder(workspace)
+        self.context = ContextBuilder(workspace, model=self.model)
         self.sessions = SessionManager(workspace)
         self.tools = ToolRegistry()
+        
+        # Initialize Model Registry
+        self.model_registry = ModelRegistry()
+        if providers_config:
+            self._populate_registry(providers_config)
+        
         self.subagents = SubagentManager(
             provider=provider,
             workspace=workspace,
             bus=bus,
             model=self.model,
-            brave_api_key=brave_api_key,
             exec_config=self.exec_config,
             restrict_to_workspace=restrict_to_workspace,
+            model_registry=self.model_registry,
         )
 
         self._running = False
         self._register_default_tools()
+
+    def _populate_registry(self, providers: "ProvidersConfig") -> None:
+        """Register configured providers into the registry."""
+        # Check if we have an event loop, if not (e.g. testing), just warn or skip
+        # We use asyncio.create_task to avoid blocking init, 
+        # or just run synchronously if possible (register is async though).
+        # ideally we should await this but __init__ is sync.
+        # We'll schedule it on the loop if running, or just fire and forget.
+        # Actually ModelRegistry.register is async. 
+        # Let's define a helper coroutine.
+        
+        async def register_all():
+            # OpenRouter
+            if providers.openrouter.api_key:
+                await self.model_registry.register(
+                    base_url=providers.openrouter.api_base or "https://openrouter.ai/api/v1",
+                    api_key=providers.openrouter.api_key,
+                    name="openrouter"
+                )
+            # OpenAI
+            if providers.openai.api_key:
+                await self.model_registry.register(
+                    base_url=providers.openai.api_base or "https://api.openai.com/v1",
+                    api_key=providers.openai.api_key,
+                    name="openai"
+                )
+            # Anthropic
+            if providers.anthropic.api_key:
+                await self.model_registry.register(
+                    base_url=providers.anthropic.api_base or "https://api.anthropic.com/v1",
+                    api_key=providers.anthropic.api_key,
+                    name="anthropic"
+                )
+            # Gemini
+            if providers.gemini.api_key:
+                await self.model_registry.register(
+                    base_url=providers.gemini.api_base or "https://generativelanguage.googleapis.com/v1beta/openai",
+                    api_key=providers.gemini.api_key,
+                    name="gemini"
+                )
+            # DeepSeek
+            if providers.deepseek.api_key:
+                await self.model_registry.register(
+                    base_url=providers.deepseek.api_base or "https://api.deepseek.com",
+                    api_key=providers.deepseek.api_key,
+                    name="deepseek"
+                )
+            # Add others as needed...
+            
+            # Also add dynamic providers from brain config (already handled by check command but good to have here)
+            if self.brain_config.provider_registry:
+                for p in self.brain_config.provider_registry:
+                    if "api_key" in p and "base_url" in p:
+                        await self.model_registry.register(
+                            base_url=p["base_url"],
+                            api_key=p["api_key"],
+                            name=p.get("name")
+                        )
+
+        # Iterate loop to run
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(register_all())
+        except RuntimeError:
+            # No loop running yet, that's fine, the registry might be empty until loop starts?
+            # Or we accept that for CLI 'run_once' usage it might be racy.
+            pass
 
     def _register_default_tools(self) -> None:
         """Register the default set of tools."""
@@ -113,8 +188,7 @@ class AgentLoop:
         )
 
         # Web tools
-        self.tools.register(WebSearchTool(api_key=self.brave_api_key))
-        self.tools.register(WebFetchTool())
+        self.tools.register(BrowserTool())
 
         # Message tool
         message_tool = MessageTool(send_callback=self.bus.publish_outbound)
@@ -133,6 +207,7 @@ class AgentLoop:
 
         # Mac tool
         self.tools.register(MacTool())
+        self.tools.register(MacVisionTool())
 
         # GitHub tool
         self.tools.register(GitHubTool())
@@ -143,13 +218,14 @@ class AgentLoop:
         # Memory tool (active management)
         self.tools.register(MemoryTool(workspace=self.workspace))
 
+        # Provider tool (manage LLM providers)
+        self.tools.register(ProviderTool(registry=self.model_registry))
+
         # Skills tool (Plaza/management)
         self.tools.register(
             SkillsTool(
                 workspace=self.workspace,
-                search_func=self.tools.get("web_search").execute
-                if self.tools.has("web_search")
-                else None,
+                search_func=None,
             )
         )
 
@@ -199,7 +275,10 @@ class AgentLoop:
         # Handle system messages (subagent announces)
         # The chat_id contains the original "channel:chat_id" to route back to
         if msg.channel == "system":
-            return await self._process_system_message(msg)
+            result = await self._process_system_message(msg)
+            if result:
+                result.content = self._filter_reasoning(result.content)
+            return result
 
         logger.info(f"Processing message from {msg.channel}:{msg.sender_id}")
 
@@ -278,6 +357,10 @@ class AgentLoop:
                         result_str = f"Error executing tool {tool_call.name}: {str(result)}"
                     else:
                         result_str = str(result)
+                    
+                    # Log first 200 chars safely
+                    log_content = str(result_str)[:200] if result_str else ""
+                    logger.debug(f"Tool {tool_call.name} result: {log_content}...")
                         
                     messages = self.context.add_tool_result(
                         messages, tool_call.id, tool_call.name, result_str
@@ -288,12 +371,15 @@ class AgentLoop:
                 break
 
         if final_content is None:
-            final_content = "I've completed processing but have no response to give."
+            final_content = "我已经完成了处理，但暂时没有需要回复的具体内容。"
 
         # Save to session
         session.add_message("user", msg.content)
         session.add_message("assistant", final_content)
         self.sessions.save(session)
+
+        # Filter reasoning before sending to user
+        final_content = self._filter_reasoning(str(final_content))
 
         return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id, content=final_content)
 
@@ -479,4 +565,25 @@ Conversation History:
 
         except Exception as e:
             logger.error(f"Failed to auto-summarize session: {e}")
+
+    def _filter_reasoning(self, content: str) -> str:
+        """
+        Remove internal reasoning within <think> tags.
+        
+        Args:
+            content: The raw response content.
+            
+        Returns:
+            Content with reasoning tags and their contents removed.
+        """
+        if not content:
+            return content
+            
+        import re
+        # Strip <think>...</think> (non-greedy, including newline)
+        # Handle cases where the closing tag might be missing at the end
+        content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL)
+        content = re.sub(r"<think>.*$", "", content, flags=re.DOTALL)
+        
+        return content.strip()
 

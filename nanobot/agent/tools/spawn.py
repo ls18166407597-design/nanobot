@@ -59,6 +59,10 @@ class SpawnTool(Tool):
                     "type": "boolean",
                     "description": "Enable internal reasoning for the subagent",
                 },
+                "use_free_provider": {
+                    "type": "boolean",
+                    "description": "Try to use a free provider if available (default: true)",
+                },
             },
             "required": ["task"],
         }
@@ -69,6 +73,7 @@ class SpawnTool(Tool):
         label: str | None = None,
         model: str | None = None,
         thinking: bool = False,
+        use_free_provider: bool = True,
         **kwargs: Any,
     ) -> str:
         """Spawn a subagent to execute the given task."""
@@ -79,4 +84,5 @@ class SpawnTool(Tool):
             thinking=thinking,
             origin_channel=self._origin_channel,
             origin_chat_id=self._origin_chat_id,
+            use_free_provider=use_free_provider,
         )

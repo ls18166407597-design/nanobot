@@ -47,6 +47,10 @@ class CronTool(Tool):
                     "type": "string",
                     "description": "Cron expression like '0 9 * * *' (for scheduled tasks)",
                 },
+                "in_seconds": {
+                    "type": "integer",
+                    "description": "Run once after X seconds (for one-off reminders)",
+                },
                 "job_id": {"type": "string", "description": "Job ID (for remove)"},
             },
             "required": ["action"],
@@ -58,30 +62,42 @@ class CronTool(Tool):
         message: str = "",
         every_seconds: int | None = None,
         cron_expr: str | None = None,
+        in_seconds: int | None = None,
         job_id: str | None = None,
         **kwargs: Any,
     ) -> str:
         if action == "add":
-            return self._add_job(message, every_seconds, cron_expr)
+            return self._add_job(message, every_seconds, cron_expr, in_seconds)
         elif action == "list":
             return self._list_jobs()
         elif action == "remove":
             return self._remove_job(job_id)
         return f"Unknown action: {action}"
 
-    def _add_job(self, message: str, every_seconds: int | None, cron_expr: str | None) -> str:
+    def _add_job(
+        self,
+        message: str,
+        every_seconds: int | None,
+        cron_expr: str | None,
+        in_seconds: int | None,
+    ) -> str:
         if not message:
             return "Error: message is required for add"
         if not self._channel or not self._chat_id:
             return "Error: no session context (channel/chat_id)"
 
         # Build schedule
+        delete_after_run = False
         if every_seconds:
             schedule = CronSchedule(kind="every", every_ms=every_seconds * 1000)
         elif cron_expr:
             schedule = CronSchedule(kind="cron", expr=cron_expr)
+        elif in_seconds:
+            import time
+            schedule = CronSchedule(kind="at", at_ms=int(time.time() * 1000) + (in_seconds * 1000))
+            delete_after_run = True
         else:
-            return "Error: either every_seconds or cron_expr is required"
+            return "Error: one of every_seconds, cron_expr, or in_seconds is required"
 
         job = self._cron.add_job(
             name=message[:30],
@@ -90,6 +106,7 @@ class CronTool(Tool):
             deliver=True,
             channel=self._channel,
             to=self._chat_id,
+            delete_after_run=delete_after_run,
         )
         return f"Created job '{job.name}' (id: {job.id})"
 

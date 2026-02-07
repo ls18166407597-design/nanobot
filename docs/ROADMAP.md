@@ -9,20 +9,21 @@ This roadmap outlines the long-term vision for Nanobot's evolution from a lightw
 - [x] **Lean Context**: Significant reduction in token usage and latency.
 - [x] **Bilingual Support**: Full Chinese/English documentation and structure.
 
-## 🚀 Phase 2: Intelligence & Scalability (In Progress)
+## ✅ Phase 2: Intelligence & Scalability (Completed)
 - [x] **Dynamic Tool Discovery**: Automatic system prompt updates based on registered tool schemas.
 - [x] **Conversation Pruning**: Infinite session length via smart history summarization (Auto-Summarization).
 - [x] **Long-term Memory (RAG)**: Light RAG implementation for context retrieval.
 - [x] **Parallel Tool Execution**: Async concurrent tool usage for speed.
 - [x] **LLM Safety Guard**: Semantic command auditing for enhanced safety.
+- [x] **Subagent Parallelism**: Capability to spawn background subagents for long-running research tasks.
 - [ ] **Multi-Model Fallback**: Automatic failover between providers (Gemini, DeepSeek, local).
-- [ ] **Subagent Parallelism**: Capability to spawn background subagents for long-running research tasks.
 
-## 🎨 Phase 3: Multi-Modal & Rich UX
-- **Vision Integration**: Ability to "see" and analyze screenshots/webpages natively.
-- **GUI Deep Linking**: `obsidian://` and other protocol handlers for seamless desktop interaction.
-- **Long-term Memory (RAG)**: Integration with local vector stores for deep document retrieval.
+## 🚀 Phase 3: Perceptual Autonomy (In Progress)
+- [x] **Native Vision Integration**: Ability to "see" and analyze screenshots natively via macOS Vision.
+- [x] **Desktop Control**: Full mouse/keyboard interaction via Peekaboo.
+- [ ] **GUI Deep Linking**: `obsidian://` and other protocol handlers for seamless desktop interaction.
+- [ ] **Deep Vector RAG**: Integration with local vector stores for deep document retrieval.
 
 ---
 
-Nanobot remains committed to being **Ultra-Lightweight (~4,000 lines)** while delivering state-of-the-art agentic capabilities.
+Nanobot remains committed to being **Lean (~8,100 lines)** while delivering state-of-the-art agentic capabilities.

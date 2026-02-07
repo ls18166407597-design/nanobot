@@ -203,11 +203,11 @@ def gateway(
         workspace=config.workspace_path,
         model=config.agents.defaults.model,
         max_iterations=config.agents.defaults.max_tool_iterations,
-        brave_api_key=config.tools.web.search.api_key or None,
         exec_config=config.tools.exec,
         cron_service=cron,
         restrict_to_workspace=config.tools.restrict_to_workspace,
         brain_config=config.brain,
+        providers_config=config.providers,
     )
 
     # Set cron callback (needs agent)
@@ -313,9 +313,10 @@ def agent(
         bus=bus,
         provider=provider,
         workspace=config.workspace_path,
-        brave_api_key=config.tools.web.search.api_key or None,
         exec_config=config.tools.exec,
         restrict_to_workspace=config.tools.restrict_to_workspace,
+        brain_config=config.brain,
+        providers_config=config.providers,
     )
 
     if message:
@@ -667,6 +668,136 @@ def status():
             else "[dim]not set[/dim]"
         )
         console.print(f"vLLM/Local: {vllm_status}")
+
+
+# ============================================================================
+# Provider Commands
+# ============================================================================
+
+
+provider_app = typer.Typer(help="Manage LLM providers")
+app.add_typer(provider_app, name="provider")
+
+
+@provider_app.command("add")
+def provider_add(
+    name: str = typer.Option(..., "--name", "-n", help="Provider name (e.g. MyAPI)"),
+    base_url: str = typer.Option(..., "--url", "-u", help="API Base URL"),
+    api_key: str = typer.Option(..., "--key", "-k", help="API Key"),
+):
+    """Add or update a provider."""
+    from nanobot.config.loader import load_config, save_config
+
+    config = load_config()
+
+    # Check if exists
+    updated = False
+    for p in config.brain.provider_registry:
+        if p.get("name") == name:
+            p["base_url"] = base_url
+            p["api_key"] = api_key
+            updated = True
+            break
+
+    if not updated:
+        config.brain.provider_registry.append(
+            {"name": name, "base_url": base_url, "api_key": api_key}
+        )
+
+    save_config(config)
+    action = "Updated" if updated else "Added"
+    console.print(f"[green]✓[/green] {action} provider '{name}'")
+
+
+@provider_app.command("remove")
+def provider_remove(
+    name: str = typer.Argument(..., help="Provider name to remove"),
+):
+    """Remove a provider."""
+    from nanobot.config.loader import load_config, save_config
+
+    config = load_config()
+    initial_len = len(config.brain.provider_registry)
+    config.brain.provider_registry = [
+        p for p in config.brain.provider_registry if p.get("name") != name
+    ]
+
+    if len(config.brain.provider_registry) < initial_len:
+        save_config(config)
+        console.print(f"[green]✓[/green] Removed provider '{name}'")
+    else:
+        console.print(f"[red]Provider '{name}' not found[/red]")
+
+
+@provider_app.command("list")
+def provider_list():
+    """List configured providers."""
+    from nanobot.config.loader import load_config
+
+    config = load_config()
+
+    if not config.brain.provider_registry:
+        console.print("No additional providers configured.")
+        return
+
+    table = Table(title="Provider Registry")
+    table.add_column("Name", style="cyan")
+    table.add_column("Base URL")
+    table.add_column("Key (Masked)")
+
+    for p in config.brain.provider_registry:
+        key = p.get("api_key", "")
+        masked_key = f"{key[:3]}...{key[-3:]}" if len(key) > 6 else "***"
+        table.add_row(p.get("name", "N/A"), p.get("base_url", ""), masked_key)
+
+    console.print(table)
+
+
+@provider_app.command("check")
+def provider_check(
+    name: str = typer.Argument(None, help="Check specific provider by name"),
+    all: bool = typer.Option(False, "--all", "-a", help="Check all providers"),
+):
+    """Check status and balance of providers."""
+    from nanobot.agent.models import ModelRegistry
+    from nanobot.agent.tools.provider import ProviderTool
+    from nanobot.config.loader import load_config
+
+    config = load_config()
+    registry = ModelRegistry()
+    tool = ProviderTool(registry=registry)
+
+    # Register providers from config
+    for p in config.brain.provider_registry:
+        if "api_key" in p and "base_url" in p:
+            asyncio.run(
+                registry.register(
+                    base_url=p["base_url"],
+                    api_key=p["api_key"],
+                    name=p.get("name"),
+                )
+            )
+
+    if name:
+        # Check specific
+        result = asyncio.run(tool.execute(action="check", name=name))
+        console.print(result)
+    elif all:
+        # Check all
+        if not config.brain.provider_registry:
+            console.print("No providers to check.")
+            return
+        
+        for p in config.brain.provider_registry:
+            p_name = p.get("name")
+            console.print(f"\n[bold]Checking {p_name}...[/bold]")
+            result = asyncio.run(tool.execute(action="check", name=p_name))
+            console.print(result)
+    else:
+        # Default: list registered providers with basic status
+        # Just use list command
+        provider_list()
+        console.print("\nUse [cyan]nanobot provider check --all[/cyan] to verify balances.")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,16 @@
+{
+    "files.exclude": {
+        "**/openclaw": true,
+        "**/.venv": true,
+        "**/.git_disabled": true,
+        "**/.pytest_cache": true,
+        "**/__pycache__": true
+    },
+    "search.exclude": {
+        "**/openclaw": true,
+        "**/.venv": true,
+        "**/.git_disabled": true,
+        "**/.pytest_cache": true,
+        "**/__pycache__": true
+    }
+}

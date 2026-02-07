@@ -10,6 +10,28 @@ def ensure_dir(path: Path) -> Path:
     return path
 
 
+def safe_resolve_path(path: str | Path, allowed_dir: Path | None = None) -> Path:
+    """
+    Resolve path and optionally enforce directory restriction.
+    
+    Args:
+        path: The path to resolve.
+        allowed_dir: Optional root directory to restrict access to.
+        
+    Returns:
+        The resolved Path object.
+        
+    Raises:
+        PermissionError: If the resolved path is outside the allowed directory.
+    """
+    resolved = Path(path).expanduser().resolve()
+    if allowed_dir:
+        allowed_dir = allowed_dir.resolve()
+        if not str(resolved).startswith(str(allowed_dir)):
+            raise PermissionError(f"Path '{path}' is outside allowed directory '{allowed_dir}'")
+    return resolved
+
+
 def get_data_path() -> Path:
     """Get the nanobot data directory (~/.nanobot)."""
     return ensure_dir(Path.home() / ".nanobot")

@@ -17,10 +17,11 @@ from nanobot.agent.tools.mac import MacTool
 from nanobot.agent.tools.memory import MemoryTool
 from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.agent.tools.shell import ExecTool
-from nanobot.agent.tools.web import WebFetchTool, WebSearchTool
+from nanobot.agent.tools.browser import BrowserTool
 from nanobot.bus.events import InboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.providers.base import LLMProvider
+from nanobot.agent.models import ModelRegistry
 
 
 class SubagentManager:
@@ -38,9 +39,9 @@ class SubagentManager:
         workspace: Path,
         bus: MessageBus,
         model: str | None = None,
-        brave_api_key: str | None = None,
         exec_config: "ExecToolConfig | None" = None,
         restrict_to_workspace: bool = False,
+        model_registry: "ModelRegistry | None" = None,
     ):
         from nanobot.config.schema import ExecToolConfig
 
@@ -48,9 +49,9 @@ class SubagentManager:
         self.workspace = workspace
         self.bus = bus
         self.model = model or provider.get_default_model()
-        self.brave_api_key = brave_api_key
         self.exec_config = exec_config or ExecToolConfig()
         self.restrict_to_workspace = restrict_to_workspace
+        self.model_registry = model_registry
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
 
     async def spawn(
@@ -61,6 +62,7 @@ class SubagentManager:
         thinking: bool = False,
         origin_channel: str = "cli",
         origin_chat_id: str = "direct",
+        use_free_provider: bool = True,
     ) -> str:
         """
         Spawn a subagent to execute a task in the background.
@@ -70,6 +72,7 @@ class SubagentManager:
             label: Optional human-readable label for the task.
             origin_channel: The channel to announce results to.
             origin_chat_id: The chat ID to announce results to.
+            use_free_provider: If True, try to use a free provider from registry.
 
         Returns:
             Status message indicating the subagent was started.
@@ -81,10 +84,36 @@ class SubagentManager:
             "channel": origin_channel,
             "chat_id": origin_chat_id,
         }
-
+        
+        # Determine provider to use
+        run_provider = self.provider
+        run_model = model or self.model
+        
+        if use_free_provider and self.model_registry:
+            free_info = self.model_registry.get_provider("free_first")
+            if free_info:
+                logger.info(f"Subagent [{task_id}] using free provider: {free_info.name}")
+                # Create a temporary provider instance for this subagent
+                # We need to import OpenAIProvider dynamically or use a factory
+                # For now, we reuse the existing provider class if it supports base_url switching
+                # OR we assume the main provider is OpenAI-compatible and just create a new one.
+                # Since we don't have a factory here, let's try to assume OpenAICompatible for now
+                # or just modify the run_subagent to use a new provider instance if we can.
+                
+                # A safer way is to pass the provider_info to _run_subagent and let it create the provider
+                pass
+        
         # Create background task
         bg_task = asyncio.create_task(
-            self._run_subagent(task_id, task, display_label, origin, model, thinking)
+            self._run_subagent(
+                task_id, 
+                task, 
+                display_label, 
+                origin, 
+                run_model, 
+                thinking,
+                use_free_provider=use_free_provider
+            )
         )
         self._running_tasks[task_id] = bg_task
 
@@ -102,11 +131,70 @@ class SubagentManager:
         origin: dict[str, str],
         model_override: str | None,
         thinking: bool,
+        use_free_provider: bool = False,
     ) -> None:
         """Execute the subagent task and announce the result."""
         logger.info(f"Subagent [{task_id}] starting task: {label}")
 
         try:
+            # Select provider
+            provider = self.provider
+            run_model = model_override or self.model
+
+            # 1. Check for explicit provider override based on model prefix
+            if model_override and self.model_registry:
+                # e.g. "gemini/gemini-2.0-flash" -> provider "gemini"
+                # e.g. "deepseek/deepseek-chat" -> provider "deepseek"
+                clean_model = model_override.lower()
+                matched_provider_info = None
+                
+                # Check direct prefix match with registered providers
+                for p_name, p_info in self.model_registry.providers.items():
+                    if clean_model.startswith(f"{p_name}/"):
+                         matched_provider_info = p_info
+                         break
+                
+                if matched_provider_info:
+                    try:
+                        from nanobot.providers.litellm_provider import LiteLLMProvider
+                        logger.info(f"Subagent [{task_id}] switching to provider '{matched_provider_info.name}' for model '{run_model}'")
+                        provider = LiteLLMProvider(
+                            api_key=matched_provider_info.api_key,
+                            api_base=matched_provider_info.base_url,
+                            default_model=run_model
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to switch to specific provider {matched_provider_info.name}: {e}")
+
+            # 2. Check for free provider strategy (only if no specific override or override failed?)
+            # Valid if use_free_provider is True AND we didn't just switch to a specific one requested by user.
+            # If user requested 'gemini/...', we stick to that. 
+            # If user didn't specify model (model_override is None), then we might try free.
+            elif use_free_provider and self.model_registry and not model_override:
+                free_info = self.model_registry.get_provider("free_first")
+                if free_info:
+                    try:
+                        # Instantiate a temporary provider
+                        from nanobot.providers.litellm_provider import LiteLLMProvider
+
+                        # Use the first available model from the free provider if no override
+                        if not model_override and free_info.models:
+                            run_model = free_info.models[0]
+
+                        # Create provider instance
+                        provider = LiteLLMProvider(
+                            api_key=free_info.api_key,
+                            api_base=free_info.base_url,
+                            default_model=run_model,
+                        )
+                        logger.info(
+                            f"Subagent [{task_id}] switched to free provider: {free_info.name} (model: {run_model})"
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to switch to free provider: {e}. Falling back to main provider."
+                        )
+
             # Build subagent tools (no message tool, no spawn tool)
             tools = ToolRegistry()
             allowed_dir = self.workspace if self.restrict_to_workspace else None
@@ -120,8 +208,8 @@ class SubagentManager:
                     restrict_to_workspace=self.restrict_to_workspace,
                 )
             )
-            tools.register(WebSearchTool(api_key=self.brave_api_key))
-            tools.register(WebFetchTool())
+            # Web tools
+            tools.register(BrowserTool())
             tools.register(GmailTool())
             tools.register(MacTool())
             tools.register(GitHubTool())
@@ -145,7 +233,7 @@ class SubagentManager:
             while iteration < max_iterations:
                 iteration += 1
 
-                response = await self.provider.chat(
+                response = await provider.chat(
                     messages=messages,
                     tools=tools.get_definitions(),
                     model=run_model,

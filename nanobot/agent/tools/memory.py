@@ -3,6 +3,7 @@ from typing import Any
 
 from nanobot.agent.memory import MemoryStore
 from nanobot.agent.tools.base import Tool
+from nanobot.utils.helpers import safe_resolve_path
 
 
 class MemoryTool(Tool):
@@ -63,10 +64,13 @@ class MemoryTool(Tool):
                 if filename == "MEMORY.md":
                     return self.store.read_long_term() or "Long-term memory is empty."
                 else:
-                    target_file = self.store.memory_dir / filename
-                    if target_file.exists():
-                        return target_file.read_text(encoding="utf-8")
-                    return f"Error: Memory file '{filename}' not found."
+                    try:
+                        target_file = safe_resolve_path(self.store.memory_dir / filename, self.store.memory_dir)
+                        if target_file.exists():
+                            return target_file.read_text(encoding="utf-8")
+                        return f"Error: Memory file '{filename}' not found."
+                    except PermissionError as e:
+                        return str(e)
 
             elif action == "search":
                 query = kwargs.get("query")

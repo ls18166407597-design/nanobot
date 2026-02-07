@@ -34,6 +34,7 @@ dependencies = [
     "google-auth-oauthlib>=1.0.0",
     "google-auth>=2.0.0",
     "PyGithub>=2.0.0",
+    "playwright>=1.40.0",
 ]
 
 [project.optional-dependencies]

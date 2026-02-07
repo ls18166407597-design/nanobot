@@ -178,8 +178,8 @@ class SkillsLoader:
 
         if library_count > 0:
             lines.append(
-                f"\nNOTE: There are {library_count} additional library skills available in the 'lib:*' namespace. "
-                "Use the 'skills' tool with action='list_plaza' to explore them."
+                f"\n注意：在 'lib:*' 命名空间中还有 {library_count} 个额外的库技能可用。 "
+                "使用 'skills' 工具配合 action='list_plaza' 来探索它们。"
             )
 
         return "\n".join(lines)

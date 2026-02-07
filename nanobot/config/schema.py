@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from pydantic import BaseModel, Field
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class WhatsAppConfig(BaseModel):
@@ -127,6 +127,21 @@ class ToolsConfig(BaseModel):
     restrict_to_workspace: bool = False  # If true, restrict all tool access to workspace directory
 
 
+class BrainConfig(BaseModel):
+    """Configuration for AI cognitive features."""
+    
+    auto_summarize: bool = True
+    light_rag: bool = True
+    safety_guard: bool = True
+    
+    # Advanced settings
+    memory_chunk_size: int = 500
+    summary_threshold: int = 40  # Messages count to trigger summary
+    
+    # Registry for additional providers (e.g. One API)
+    provider_registry: list[dict[str, str]] = Field(default_factory=list)
+
+
 class Config(BaseSettings):
     """Root configuration for nanobot."""
 
@@ -142,16 +157,7 @@ class Config(BaseSettings):
         """Get expanded workspace path."""
         return Path(self.agents.defaults.workspace).expanduser()
 
-class BrainConfig(BaseModel):
-    """Configuration for AI cognitive features."""
-    
-    auto_summarize: bool = True
-    light_rag: bool = True
-    safety_guard: bool = True
-    
-    # Advanced settings
-    memory_chunk_size: int = 500
-    summary_threshold: int = 40  # Messages count to trigger summary
+
 
 
     def _match_provider(self, model: str | None = None) -> ProviderConfig | None:
@@ -218,6 +224,7 @@ class BrainConfig(BaseModel):
             return self.providers.vllm.api_base
         return None
 
-    class Config:
-        env_prefix = "NANOBOT_"
-        env_nested_delimiter = "__"
+    model_config = SettingsConfigDict(
+        env_prefix="NANOBOT_",
+        env_nested_delimiter="__",
+    )

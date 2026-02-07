@@ -28,6 +28,8 @@ class MacTool(Tool):
                     "open_app",
                     "close_app",
                     "list_apps",
+                    "get_frontmost_app",
+                    "activate_app",
                     "battery",
                     "system_stats",
                 ],
@@ -65,6 +67,12 @@ class MacTool(Tool):
                 return self._close_app(str(value))
             elif action == "list_apps":
                 return self._list_apps()
+            elif action == "get_frontmost_app":
+                return self._get_frontmost_app()
+            elif action == "activate_app":
+                if not value:
+                    return "Error: App name is required for 'activate_app'."
+                return self._activate_app(str(value))
             elif action == "battery":
                 return self._get_battery()
             elif action == "system_stats":
@@ -134,6 +142,22 @@ class MacTool(Tool):
         apps = self._run_osascript(script)
         # AppleScript returns comma separated list
         return f"Running Apps: {apps}"
+
+    def _get_frontmost_app(self) -> str:
+        script = 'tell application "System Events" to get name of first process whose frontmost is true'
+        try:
+            name = self._run_osascript(script)
+            return f"Frontmost App: {name}"
+        except Exception as e:
+            return f"Error getting frontmost app: {str(e)}"
+
+    def _activate_app(self, app_name: str) -> str:
+        script = f'tell application "{app_name}" to activate'
+        try:
+            self._run_osascript(script)
+            return f"Activated '{app_name}'."
+        except Exception as e:
+            return f"Failed to activate '{app_name}': {str(e)}"
 
     def _get_battery(self) -> str:
         result = subprocess.run(["pmset", "-g", "batt"], capture_output=True, text=True)

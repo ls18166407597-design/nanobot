@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     from nanobot.config.schema import BrainConfig
 
 from nanobot.agent.tools.base import Tool
+from nanobot.utils.helpers import safe_resolve_path
 
 
 class ExecTool(Tool):
@@ -134,11 +135,12 @@ class ExecTool(Tool):
             if "..\\" in cmd or "../" in cmd:
                 return "Error: Command blocked by safety guard (path traversal detected)"
 
-            cwd_path = Path(cwd).resolve()
-            
-            # Simple check for absolute paths
-            # This is tricky because params might be paths
-            pass 
+            try:
+                # Try to find potential paths in the command and validate them
+                # This is a heuristic, but we check the CWD at least
+                safe_resolve_path(cwd, Path(self.working_dir) if self.working_dir else Path.cwd())
+            except PermissionError as e:
+                return f"Error: Command blocked by safety guard: {e}"
 
         return None
 

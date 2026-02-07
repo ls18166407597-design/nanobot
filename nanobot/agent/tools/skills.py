@@ -7,6 +7,7 @@ import aiohttp
 
 from nanobot.agent.skills import SkillsLoader
 from nanobot.agent.tools.base import Tool
+from nanobot.utils.helpers import safe_resolve_path
 
 
 class SkillsTool(Tool):
@@ -14,15 +15,14 @@ class SkillsTool(Tool):
 
     name = "skills"
     description = """
-    Manage Nanobot's skills and explore the OpenClaw Skill Plaza.
-
-    Actions:
-    - list_plaza: Browse all expert skills available in the local library.
-    - browse_online: Search the global online Skill Plaza (ClawHub.ai).
-    - search_plaza: Search for skills matching a keyword in the local library.
-    - install: Install a skill from the local library to your workspace.
-    - install_url: Download and install a skill directly from a web URL.
-    - list_installed: List skills currently active in your workspace.
+    管理和探索你工作区及库中的技能。
+    使用此工具可以安装新功能、列出已安装的技能或搜索技能广场。
+    
+    动作:
+    - list_installed: 列出当前已激活的技能。
+    - list_plaza: 浏览可用的技能广场（库）。
+    - search_plaza: 在广场中按查询词搜索技能。
+    - install: 将技能从库安装到你的工作区。
     """
 
     parameters = {
@@ -113,23 +113,28 @@ class SkillsTool(Tool):
         if not skill_name:
             return "Error: 'skill_name' required for install."
 
-        # Normalize name
-        clean_name = skill_name.replace("lib:", "")
-        lib_path = self.loader.library_skills / clean_name
-        dest_path = self.loader.workspace_skills / clean_name
+        try:
+            # Normalize and validate name (prevent traversal)
+            clean_name = skill_name.replace("lib:", "")
+            lib_path = safe_resolve_path(self.loader.library_skills / clean_name, self.loader.library_skills)
+            dest_path = safe_resolve_path(self.loader.workspace_skills / clean_name, self.loader.workspace_skills)
 
-        if not lib_path.exists():
-            return f"Error: Skill '{clean_name}' not found in library."
+            if not lib_path.exists():
+                return f"Error: Skill '{clean_name}' not found in library."
 
-        if dest_path.exists():
-            return f"Skill '{clean_name}' is already installed in workspace."
+            if dest_path.exists():
+                return f"Skill '{clean_name}' is already installed in workspace."
 
-        os.makedirs(dest_path.parent, exist_ok=True)
-        shutil.copytree(lib_path, dest_path)
-        return (
-            f"Successfully installed '{clean_name}' to workspace. "
-            "It is now active and its patterns will be followed."
-        )
+            os.makedirs(dest_path.parent, exist_ok=True)
+            shutil.copytree(lib_path, dest_path)
+            return (
+                f"Successfully installed '{clean_name}' to workspace. "
+                "It is now active and its patterns will be followed."
+            )
+        except PermissionError as e:
+            return str(e)
+        except Exception as e:
+            return f"Error installing skill: {str(e)}"
 
     async def _browse_online(self, query: str) -> str:
         if not self.search_func:
