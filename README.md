@@ -74,17 +74,39 @@ pip install -e .
 ## 🚀 快速开始
 
 > [!TIP]
-> 在 `~/.nanobot/config.json` 中设置您的 API 密钥。
+> nanobot 进阶版支持**魔法初始化**。只需启动后直接发送您的配置信息给 AI，它会自行完成剩余设置。
 
-**1. 初始化**
+**1. 安装与初始化**
 ```bash
+git clone https://github.com/ls18166407597-design/nanobot.git
+cd nanobot
+pip install -e .
 nanobot onboard
 ```
 
-**2. 启动网关**
+**2. 魔法配置 (Magic Onboarding)**
+启动 AI 交互界面：
+```bash
+nanobot agent
+```
+直接向 AI 发送如下信息（AI 将自动配置工具并保存）：
+> "帮我设置 Web 搜索，API Key 是 xxx；另外我的 GitHub Token 是 yyy。"
+
+**3. 启动全天候网关**
 ```bash
 nanobot gateway
 ```
+
+## ⚙️ 详细工具配置指南
+
+如果您习惯手动配置，可以编辑 `~/.nanobot/config.json` 或使用对应的专属配置文件：
+
+| 工具 | 配置文件 | 关键配置项 |
+| :--- | :--- | :--- |
+| **Gmail** | `gmail_config.json` | `email`, `app_password` |
+| **GitHub** | `github_config.json` | `personal_access_token` |
+| **知识库** | `knowledge_config.json` | `vault_path` (Obsidian 库路径) |
+| **Web 搜索**| `web_config.json` | `brave_api_key` |
 
 ## 🛡️ 数据安全
 
