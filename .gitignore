@@ -3,7 +3,7 @@
 *.pyc
 dist/
 build/
-docs/
+# docs/ (Removed to allow bilingual documentation)
 *.egg-info/
 *.egg
 *.pyc
