@@ -18,7 +18,7 @@
 
 ⚡️ It delivers core agent functionality in just ~4,000 lines of code — **99% smaller** than its predecessor, while injecting experimental desktop-grade features and deep architectural optimizations.
 
-📏 Real-time code stats: **3,428 lines** (run `bash core_agent_lines.sh` to verify).
+📏 Real-time code stats: **4,440 lines** (run `bash core_agent_lines.sh` to verify).
 
 ## 🌟 Premium Features
 
