@@ -150,7 +150,12 @@ class SkillsLoader:
             return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
         lines = ["<skills>"]
+        library_count = 0
         for s in all_skills:
+            if s["source"] == "library":
+                library_count += 1
+                continue
+
             name = escape_xml(s["name"])
             path = s["path"]
             desc = escape_xml(self._get_skill_description(s["name"]))
@@ -170,6 +175,12 @@ class SkillsLoader:
 
             lines.append("  </skill>")
         lines.append("</skills>")
+
+        if library_count > 0:
+            lines.append(
+                f"\nNOTE: There are {library_count} additional library skills available in the 'lib:*' namespace. "
+                "Use the 'skills' tool with action='list_plaza' to explore them."
+            )
 
         return "\n".join(lines)
 

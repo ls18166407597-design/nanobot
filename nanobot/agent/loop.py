@@ -26,6 +26,7 @@ from nanobot.agent.tools.memory import MemoryTool
 from nanobot.agent.tools.message import MessageTool
 from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.agent.tools.shell import ExecTool
+from nanobot.agent.tools.skills import SkillsTool
 from nanobot.agent.tools.spawn import SpawnTool
 from nanobot.agent.tools.web import WebFetchTool, WebSearchTool
 from nanobot.bus.events import InboundMessage, OutboundMessage
@@ -134,6 +135,9 @@ class AgentLoop:
 
         # Memory tool (active management)
         self.tools.register(MemoryTool(workspace=self.workspace))
+
+        # Skills tool (Plaza/management)
+        self.tools.register(SkillsTool(workspace=self.workspace))
 
     async def run(self) -> None:
         """Run the agent loop, processing messages from the bus."""

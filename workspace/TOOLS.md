@@ -49,6 +49,17 @@ Access global documentation and real-time data.
 
 ---
 
+## 🛒 Skill Plaza & Management (skills)
+Manage your capabilities and explore the OpenClaw library.
+```python
+skills(action="list_plaza")          # Browse all available expert patterns
+skills(action="search_plaza", query="api") # Search for specific functionality
+skills(action="install", skill_name="summarize") # Install/Activate a skill in the workspace
+skills(action="list_installed")      # List skills currently active in workspace
+```
+
+---
+
 ## 🚀 Advanced Capabilities
 - **Spawn**: Delegate long-running background audits to your clones.
 - **Skills**: You have a massive library of 50+ expert patterns in `lib:*`. Read them to become an expert in 1password, healthchecks, summarizing, and more.
