@@ -45,6 +45,13 @@ Nanobot 会自动分析这些凭据，进行验证，并为您保存配置。
 - **字段**:
   - `brave_api_key`: 您的 Brave Search API 密钥。
 
+### 🧠 智能核心配置 (Brain)
+- **文件**: `~/.nanobot/config.json` (位于 `brain` 字段下)
+- **字段**:
+  - `auto_summarize`: (布尔值) 是否开启自动对话总结。开启后可支持超长对话。默认 `true`。
+  - `summary_threshold`: (整数) 触发总结的消息数量阈值。默认 `40`。
+  - `safety_guard`: (布尔值) 是否开启 LLM 命令安全守卫。开启后 Shell 命令执行前会进行 AI 审核。默认 `true`。
+
 ---
 
 ## 🛡️ 安全提示

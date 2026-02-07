@@ -45,6 +45,13 @@ If you prefer to configure tools manually, you can edit the JSON files in `~/.na
 - **Fields**:
   - `brave_api_key`: Your Brave Search API key.
 
+### 🧠 Brain / Intelligence Configuration
+- **File**: `~/.nanobot/config.json` (under `brain` field)
+- **Fields**:
+  - `auto_summarize`: (bool) Enable auto-summarization for infinite context. Default `true`.
+  - `summary_threshold`: (int) Message count threshold to trigger summarization. Default `40`.
+  - `safety_guard`: (bool) Enable LLM safety guard for shell commands. Default `true`.
+
 ---
 
 ## 🛡️ Security Note

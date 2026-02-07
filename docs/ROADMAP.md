@@ -9,11 +9,14 @@ This roadmap outlines the long-term vision for Nanobot's evolution from a lightw
 - [x] **Lean Context**: Significant reduction in token usage and latency.
 - [x] **Bilingual Support**: Full Chinese/English documentation and structure.
 
-## 🚀 Phase 2: Intelligence & Scalability
-- **Dynamic Tool Discovery**: Automatic system prompt updates based on registered tool schemas.
-- **Conversation Pruning**: Infinite session length via smart history summarization.
-- **Multi-Model Fallback**: Automatic failover between providers (Gemini, DeepSeek, local).
-- **Subagent Parallelism**: Capability to spawn background subagents for long-running research tasks.
+## 🚀 Phase 2: Intelligence & Scalability (In Progress)
+- [x] **Dynamic Tool Discovery**: Automatic system prompt updates based on registered tool schemas.
+- [x] **Conversation Pruning**: Infinite session length via smart history summarization (Auto-Summarization).
+- [x] **Long-term Memory (RAG)**: Light RAG implementation for context retrieval.
+- [x] **Parallel Tool Execution**: Async concurrent tool usage for speed.
+- [x] **LLM Safety Guard**: Semantic command auditing for enhanced safety.
+- [ ] **Multi-Model Fallback**: Automatic failover between providers (Gemini, DeepSeek, local).
+- [ ] **Subagent Parallelism**: Capability to spawn background subagents for long-running research tasks.
 
 ## 🎨 Phase 3: Multi-Modal & Rich UX
 - **Vision Integration**: Ability to "see" and analyze screenshots/webpages natively.

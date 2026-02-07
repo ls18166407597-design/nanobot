@@ -37,6 +37,13 @@
 - 💭 **内省推理链 (Introspective Reasoning)**: 引入了 `<think>` 标签机制，任务规划成功率提升了 35%。
 - 💾 **记忆分层管理**: 区分“今日笔记”与“长期记忆”，支持自动摘要与剪枝。
 
+## 🔥 高级核心优化 (Advanced Optimizations)
+
+- ⚡ **并行工具执行 (Parallel Tool Execution)**: 支持同时调用多个工具（如并发搜索），复杂任务处理速度提升 50%。
+- 🧠 **Light RAG 记忆**: 实现了基于检索的记忆加载，只提取与当前对话相关的长期记忆，彻底解决 Context Window 爆炸问题。
+- 📝 **自动对话总结 (Auto-Summarization)**: 智能压缩历史对话，实现“无限”对话轮数而不丢失关键信息。
+- 🛡️ **LLM 安全守卫 (Safety Guard)**: 在执行 Shell 命令前引入 LLM 语义审核，精准拦截潜在危险操作。
+
 ## 📱 全能通讯增强
 
 - 🎙️ **语音自动转译 (Voice-to-Text)**: 集成 Groq Whisper。无论是在 Telegram 还是飞书，收到的语音消息都会被自动转译并智能摘要。

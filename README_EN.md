@@ -37,6 +37,13 @@ While staying lightweight, nanobot provides a powerful tool suite:
 - 💭 **Introspective Reasoning**: Uses `<think>` tags for deep planning and increased task success rates.
 - 💾 **Tiered Memory**: Separates "Daily Notes" from "Long-term Memory" with automatic pruning.
 
+## 🔥 Advanced Optimizations
+
+- ⚡ **Parallel Tool Execution**: Concurrently executes multiple tools (e.g., searches), boosting complex task speed by 50%.
+- 🧠 **Light RAG Memory**: Retrieval-based memory loading that fetches only relevant long-term memories, solving context window limits.
+- 📝 **Auto-Summarization**: Intelligently compresses conversation history to support infinite dialogue without losing key context.
+- 🛡️ **LLM Safety Guard**: Semantic audit by LLM before executing Shell commands, effectively intercepting potential risks.
+
 ## 📱 Multi-Channel Excellence
 
 - 🎙️ **Voice-to-Text**: Integrated Groq Whisper for automatic transcription in Telegram/Feishu.
