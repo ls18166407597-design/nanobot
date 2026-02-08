@@ -1,0 +1,19 @@
+{
+  "connectivity": {
+    "gateway_live": false,
+    "internet_accessible": true,
+    "status": "PASS",
+    "gateway_status": "WARN (Stopped)"
+  },
+  "tools": {
+    "filesystem": "PASS",
+    "vision": "PASS",
+    "status": "PASS"
+  },
+  "environment": {
+    "NANOBOT_HOME": "/Users/liusong/Downloads/nanobot/.home",
+    "local_config_exists": true,
+    "local_workspace_exists": true,
+    "status": "PASS"
+  }
+}

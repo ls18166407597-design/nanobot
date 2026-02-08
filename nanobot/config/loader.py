@@ -40,6 +40,15 @@ def load_config(config_path: Path | None = None) -> Config:
         except (json.JSONDecodeError, ValueError) as e:
             print(f"Warning: Failed to load config from {path}: {e}")
             print("Using default configuration.")
+    else:
+        # Check for legacy path and warn
+        from nanobot.utils.helpers import get_data_path
+        data_path = get_data_path()
+        home_path = Path("~/.nanobot").expanduser()
+        if data_path != home_path and home_path.exists():
+            print(f"\n[bold yellow]Notice:[/bold yellow] Active data directory is {data_path}")
+            print(f"A legacy configuration exists at {home_path}")
+            print("To migrate, you can copy its content or set NANOBOT_HOME.")
 
     return Config()
 

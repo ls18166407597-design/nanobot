@@ -275,9 +275,12 @@ class AgentLoop:
                     )
                 )
 
-        # Determine lane based on message type/content if needed
-        # For now, everything goes to MAIN to preserve serial ordering per conversation
-        lane = CommandLane.MAIN
+        # Determine lane based on message type/content
+        # Subagent announcements and system messages go to BACKGROUND
+        if msg.channel == "system":
+            lane = CommandLane.BACKGROUND
+        else:
+            lane = CommandLane.MAIN
         
         await CommandQueue.enqueue(lane, task)
 
@@ -307,8 +310,8 @@ class AgentLoop:
         # Get or create session
         session = self.sessions.get_or_create(msg.session_key)
 
-        # Auto-summarize if needed
-        await self._summarize_history(session)
+        # Auto-compact history if needed
+        await self._compact_history(session)
 
         # Update tool contexts
         message_tool = self.tools.get("message")
@@ -420,6 +423,27 @@ class AgentLoop:
                     messages = self.context.add_tool_result(
                         messages, tool_call.id, tool_call.name, result_str
                     )
+
+                # TRIGGER COMPACTION: Check context size after tool results
+                guard = ContextGuard(model=self.model)
+                evaluation = guard.evaluate(messages)
+                if evaluation["should_compact"]:
+                    logger.info(f"[TraceID: {msg.trace_id}] Context utilization high ({evaluation['utilization']:.2f}). Triggering compaction...")
+                    # Identify messages to summarize (system/bootstrap usually at start, we keep them)
+                    # For now, we summarize everything except system prompt and last 5 tool results/messages
+                    keep_recent = 5
+                    to_sum = [m for m in messages if m.get("role") != "system"]
+                    if len(to_sum) > keep_recent:
+                        prefix_msgs = [m for m in messages if m.get("role") == "system"]
+                        sum_msgs = messages[len(prefix_msgs):-keep_recent]
+                        recent_msgs = messages[-keep_recent:]
+                        
+                        summary = await self._summarize_messages(sum_msgs)
+                        if summary:
+                            messages = prefix_msgs + [
+                                {"role": "system", "content": f"Previous conversation summary: {summary}"}
+                            ] + recent_msgs
+                            logger.info(f"[TraceID: {msg.trace_id}] Context compacted via LLM summary.")
             else:
                 # No tool calls, we're done
                 final_content = response.content
@@ -427,6 +451,9 @@ class AgentLoop:
 
         if final_content is None:
             final_content = "我已经完成了处理，但暂时没有需要回复的具体内容。"
+
+        # Final check: if context is still too large, we might want to flag it
+        # but for now we just finish.
 
         # Save to session
         session.add_message("user", msg.content)
@@ -643,6 +670,7 @@ class AgentLoop:
         session_key: str = "cli:direct",
         channel: str = "cli",
         chat_id: str = "direct",
+        lane: CommandLane = CommandLane.MAIN,
     ) -> str:
         """
         Process a message directly (for CLI or cron usage).
@@ -663,87 +691,69 @@ class AgentLoop:
             response = await self._inner_process_message(msg)
             return response.content if response else ""
 
-        return await CommandQueue.enqueue(CommandLane.MAIN, task)
+        return await CommandQueue.enqueue(lane, task)
 
-    async def _summarize_history(self, session: "Session") -> None:
+    async def _compact_history(self, session: "Session") -> None:
         """
         Summarize conversation history if it exceeds the threshold.
-
-        Args:
-            session: The session to summarize.
         """
         if not self.brain_config.auto_summarize:
             return
 
-        # Use ContextGuard to check token usage
-        # We estimate usage purely based on history for now, assuming system prompt takes ~2k tokens
-        # Real limit check happens during build_messages, but here we proactively compact.
         guard = ContextGuard(model=self.model)
-        
-        # We use a lower threshold for proactive summarization (e.g. 60% of limit)
-        # to ensure we always have room for system prompt + response.
+        # lower threshold for proactive summarization
         safe_limit = guard.limit * 0.6 
         
         current_usage = TokenCounter.count_messages(session.messages)
-        
-        # Also respect the message count threshold as a secondary check
         count_threshold = self.brain_config.summary_threshold
         
         if current_usage < safe_limit and len(session.messages) < count_threshold:
             return
 
-        logger.info(f"Auto-summarizing session {session.key} (tokens: {current_usage}/{int(safe_limit)}, msgs: {len(session.messages)})")
+        logger.info(f"Auto-compacting session {session.key} (tokens: {current_usage}/{int(safe_limit)}, msgs: {len(session.messages)})")
 
-        # Keep the last 10 messages, summarize the rest
-        keep_count = 10
-        to_summarize = session.messages[:-keep_count]
-        recent = session.messages[-keep_count:]
+        summary = await self._summarize_messages(session.messages[:-10])
+        if summary:
+            # Keep only the last 10 messages and the new summary
+            recent = session.messages[-10:]
+            session.messages = [
+                {"role": "system", "content": f"This is a summary of the earlier conversation: {summary}"}
+            ] + recent
+            self.sessions.save(session)
 
-        # Format messages for summarization
-        # Filter out system messages and existing summaries to avoid recursion/bloat if possible,
-        # but for simplicity we just dump them.
+    async def _summarize_messages(self, messages: list[dict[str, Any]]) -> str | None:
+        """
+        Use the LLM to summarize a list of messages.
+        """
+        if not messages:
+            return None
+
         conversation_text = ""
-        for m in to_summarize:
+        for m in messages:
             role = m.get("role", "unknown")
             content = m.get("content", "")
-            conversation_text += f"{role}: {content}\n"
+            if isinstance(content, list):
+                # Handle complex content (e.g. tool calls results)
+                content = json.dumps(content)
+            conversation_text += f"{role}: {str(content)[:1000]}\n" # Cap each msg for summary prompt
 
-        # Ask LLM to summarize
         prompt = f"""Summarize the following conversation history into a concise paragraph.
 Focus on key facts, user preferences, and important context that should be remembered.
-Ignore transient interactions.
+Ignore transient interactions or technical tool output details.
 
 Conversation History:
 {conversation_text}
 """
         try:
-            # We use a simple system message + user prompt
-            messages = [
+            summary_msgs = [
                 {"role": "system", "content": "You are a helpful assistant that summarizes conversations."},
                 {"role": "user", "content": prompt}
             ]
-            response = await self.provider.chat(messages=messages, tools=[], model=self.model)
-            summary = response.content
-
-            if summary:
-                # Create a new summary message
-                # We mark it as 'system' but with a special prefix so we know it's a summary
-                summary_msg = {
-                    "role": "system",
-                    "content": f"[Previous Conversation Summary]: {summary}",
-                    "timestamp": datetime.now().isoformat(),
-                    "metadata": {"type": "summary"}
-                }
-                
-                # Replace old messages with summary + recent
-                # If there was already a summary at the top, we effectively merge it into the new one
-                # because we included it in 'conversation_text'.
-                session.messages = [summary_msg] + recent
-                self.sessions.save(session)
-                logger.info(f"Session {session.key} summarized. New length: {len(session.messages)}")
-
+            response = await self._chat_with_failover(messages=summary_msgs, tools=[])
+            return response.content
         except Exception as e:
-            logger.error(f"Failed to auto-summarize session: {e}")
+            logger.error(f"Failed to summarize messages: {e}")
+            return None
 
     def _parse_tool_calls_from_text(self, text: str) -> List[ToolCallRequest]:
         """

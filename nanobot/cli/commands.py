@@ -238,6 +238,14 @@ def gateway(
 
         logging.basicConfig(level=logging.DEBUG)
 
+    from nanobot.config.loader import load_config, get_data_dir, get_config_path
+    from nanobot.providers.factory import ProviderFactory
+    from nanobot.bus.queue import MessageBus
+    from nanobot.cron.service import CronService
+
+    data_dir = get_data_dir()
+    config_path = get_config_path()
+    console.print(f"[dim]Data directory: {data_dir}[/dim]")
     console.print(f"{__logo__} Starting nanobot gateway on port {port}...")
 
     config = load_config()
@@ -252,7 +260,7 @@ def gateway(
     is_bedrock = model.startswith("bedrock/")
 
     if not api_key and not is_bedrock:
-        console.print("[red]Error: No API key configured.[/red]")
+        console.print(f"[red]Error: No API key configured in {config_path}[/red]")
         console.print("Set one in config.json under providers.openrouter.apiKey")
         raise typer.Exit(1)
 
@@ -293,6 +301,7 @@ def gateway(
             session_key=f"cron:{job.id}",
             channel=job.payload.channel or "cli",
             chat_id=job.payload.to or "direct",
+            lane=CommandLane.BACKGROUND,
         )
         if job.payload.deliver and job.payload.to:
             from nanobot.bus.events import OutboundMessage
@@ -311,7 +320,7 @@ def gateway(
     # Create heartbeat service
     async def on_heartbeat(prompt: str) -> str:
         """Execute heartbeat through the agent."""
-        return await agent.process_direct(prompt, session_key="heartbeat")
+        return await agent.process_direct(prompt, session_key="heartbeat", lane=CommandLane.BACKGROUND)
 
     heartbeat = HeartbeatService(
         workspace=config.workspace_path,
@@ -365,9 +374,13 @@ def agent(
     """Interact with the agent directly."""
     from nanobot.agent.loop import AgentLoop
     from nanobot.bus.queue import MessageBus
-    from nanobot.config.loader import load_config
+    from nanobot.config.loader import load_config, get_data_dir, get_config_path
     from nanobot.providers.factory import ProviderFactory
 
+    data_dir = get_data_dir()
+    config_path = get_config_path()
+    
+    console.print(f"[dim]Data directory: {data_dir}[/dim]")
     config = load_config()
 
     api_key = config.get_api_key()
@@ -376,7 +389,7 @@ def agent(
     is_bedrock = model.startswith("bedrock/")
 
     if not api_key and not is_bedrock:
-        console.print("[red]Error: No API key configured.[/red]")
+        console.print(f"[red]Error: No API key configured in {config_path}[/red]")
         raise typer.Exit(1)
 
     bus = MessageBus()

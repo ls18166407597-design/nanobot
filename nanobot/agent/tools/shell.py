@@ -113,6 +113,10 @@ class ExecTool(Tool):
             result = "\n".join(output_parts) if output_parts else "(no output)"
             if llm_warning:
                 result = f"{llm_warning}\n{result}"
+            
+            # Add safety status if guard is disabled
+            if self.brain_config and not self.brain_config.safety_guard:
+                result = f"[Safety Guard: Disabled]\n{result}"
 
             # Truncate very long output
             max_len = 10000
