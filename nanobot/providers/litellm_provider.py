@@ -7,6 +7,7 @@ import litellm
 from litellm import acompletion
 
 from nanobot.providers.base import LLMProvider, LLMResponse, ToolCallRequest
+from nanobot.providers.adapters import ModelAdapter
 
 
 class LiteLLMProvider(LLMProvider):
@@ -119,6 +120,11 @@ class LiteLLMProvider(LLMProvider):
         # kimi-k2.5 only supports temperature=1.0
         if "kimi-k2.5" in model.lower():
             temperature = 1.0
+
+        # Apply model-specific parameter adaptations
+        suggested = ModelAdapter.get_suggested_params(model)
+        if "temperature" in suggested and not kwargs.get("explicit_temp"):
+             temperature = suggested["temperature"]
 
         kwargs: dict[str, Any] = {
             "model": model,

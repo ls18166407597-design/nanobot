@@ -20,26 +20,19 @@ class ProviderFactory:
         """
         from nanobot.providers.openai_provider import OpenAIProvider
         
-        # Route to OpenAIProvider if api_base is provided or model matches general patterns
-        # Standard OpenAI-compatible endpoints should use OpenAIProvider
-        is_openai_compatible = api_base is not None
-        if "gpt" in model.lower() or "deepseek" in model.lower() or "qwen" in model.lower():
-             # However, we only use OpenAIProvider for these if they aren't explicit native cloud models
-             # For now, if api_base is present, it's almost certainly a proxy/SiliconFlow
-             pass
-
         if api_base:
-            logger.debug(f"Routing to OpenAIProvider for: {model}")
+            # If api_base is present, it's likely an OpenAI-compatible proxy (SiliconFlow, etc.)
+            # OpenAIProvider is often more stable for these than LiteLLM
+            logger.debug(f"Routing to OpenAIProvider for OpenAI-compatible endpoint: {model}")
             return OpenAIProvider(
                 api_key=api_key,
                 api_base=api_base,
                 default_model=model,
             )
 
-        logger.debug(f"Routing to LiteLLMProvider for: {model}")
+        logger.debug(f"Routing to LiteLLMProvider for native model: {model}")
         return LiteLLMProvider(
             api_key=api_key,
-            api_base=api_base,
             default_model=model,
             **kwargs
         )

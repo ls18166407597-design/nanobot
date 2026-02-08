@@ -25,7 +25,7 @@
     - 实现了基于系统快捷键 (`Cmd+F/K`) 的纯键盘控制流。
     - 攻克了输入法干扰 (IME Bypass) 与窗口焦点难题。
     - 建立了智能路由 (`Smart Dispatch`) 与联系人动态管理系统。
-- [x] Phase 30: System Robustness & Diagnostic Enhancements (Context Guard, Dynamic Paths, Background Lanes, Telegram Segmentation)
+- [x] Phase 30: System Robustness & Diagnostic Enhancements (Context Guard, Dynamic Paths, Background Lanes, Telegram Segmentation, Model Adaptation)
 - [ ] **深度链接联动**: 支持 `obsidian://` 等协议实现与桌面应用的无缝交互。
 - [ ] **深度向量 RAG**: 集成本地向量数据库，实现深层文档检索。
 

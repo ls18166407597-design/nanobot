@@ -10,6 +10,7 @@ from typing import Any
 
 from nanobot.agent.memory import MemoryStore
 from nanobot.agent.skills import SkillsLoader
+from nanobot.providers.adapters import ModelAdapter
 
 SILENT_REPLY_TOKEN = "SILENT_REPLY_TOKEN"
 
@@ -87,6 +88,11 @@ class ContextBuilder:
     def _get_reasoning_prompt(self) -> str:
         """Get the reasoning format section if enabled."""
         if self.brain_config and not getattr(self.brain_config, "reasoning", True):
+            return ""
+
+        # If model name is available and it's a native reasoning model, 
+        # suppress the explicit prompt as it's redundant/interfering
+        if self.model and ModelAdapter.needs_reasoning_suppression(self.model):
             return ""
 
         return """
