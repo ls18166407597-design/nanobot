@@ -79,6 +79,36 @@ def _markdown_to_telegram_html(text: str) -> str:
     return text
 
 
+def _split_message(text: str, limit: int = 4000) -> list[str]:
+    """
+    Split a message into chunks within the 4096 character limit.
+    Tries to split at double newlines, then single newlines.
+    """
+    if len(text) <= limit:
+        return [text]
+
+    chunks = []
+    remaining = text
+    while len(remaining) > limit:
+        # Try splitting at double newline
+        split_at = remaining.rfind("\n\n", 0, limit)
+        if split_at == -1:
+            # Try splitting at single newline
+            split_at = remaining.rfind("\n", 0, limit)
+
+        if split_at == -1:
+            # Hard split at limit
+            split_at = limit
+
+        chunks.append(remaining[:split_at].strip())
+        remaining = remaining[split_at:].strip()
+
+    if remaining:
+        chunks.append(remaining)
+
+    return chunks
+
+
 class TelegramChannel(BaseChannel):
     """
     Telegram channel using long polling.
@@ -158,28 +188,44 @@ class TelegramChannel(BaseChannel):
             self._app = None
 
     async def send(self, msg: OutboundMessage) -> None:
-        """Send a message through Telegram."""
+        """Send a message through Telegram with auto-segmentation and retry."""
         if not self._app:
             logger.warning("Telegram bot not running")
             return
 
         try:
-            logger.debug(f"Telegram sending to {msg.chat_id}: {msg.content[:50]}...")
-            # chat_id should be the Telegram chat ID (integer)
             chat_id = int(msg.chat_id)
-            # Convert markdown to Telegram HTML
-            html_content = _markdown_to_telegram_html(msg.content)
-            await self._app.bot.send_message(chat_id=chat_id, text=html_content, parse_mode="HTML")
-            logger.info(f"Telegram sent message to {chat_id}")
+            # 1. Segment the message if it's too long
+            # We use a conservative limit of 3500 to leave room for HTML tags
+            segments = _split_message(msg.content, limit=3500)
+            
+            for i, segment in enumerate(segments):
+                # Convert markdown to Telegram HTML for each segment
+                html_content = _markdown_to_telegram_html(segment)
+                
+                # Basic retry logic for transient network issues
+                for attempt in range(3):
+                    try:
+                        await self._app.bot.send_message(
+                            chat_id=chat_id, 
+                            text=html_content, 
+                            parse_mode="HTML"
+                        )
+                        logger.info(f"Telegram sent segment {i+1}/{len(segments)} to {chat_id}")
+                        break
+                    except Exception as e:
+                        if attempt == 2:
+                            logger.error(f"Failed to send segment after 3 attempts: {e}")
+                            # Final fallback to plain text if HTML fails
+                            await self._app.bot.send_message(chat_id=chat_id, text=segment[:4000])
+                        else:
+                            logger.warning(f"Telegram send attempt {attempt+1} failed, retrying: {e}")
+                            await asyncio.sleep(1)
+
         except ValueError:
             logger.error(f"Invalid chat_id: {msg.chat_id}")
         except Exception as e:
-            # Fallback to plain text if HTML parsing fails
-            logger.warning(f"HTML parse failed, falling back to plain text: {e}")
-            try:
-                await self._app.bot.send_message(chat_id=int(msg.chat_id), text=msg.content)
-            except Exception as e2:
-                logger.error(f"Error sending Telegram message: {e2}")
+            logger.error(f"Error orchestrating Telegram send: {e}")
 
     async def _on_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /start command."""
