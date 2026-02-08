@@ -168,5 +168,5 @@ class MacTool(Tool):
         cmd = ["top", "-l", "1", "-n", "0"]  # -l 1 sample, -n 0 lines of processes (header only)
         result = subprocess.run(cmd, capture_output=True, text=True)
         # top header contains the info
-        lines = result.stdout.splitlines()[:15]  # Grab first few lines
+        lines = list(result.stdout.splitlines())[:15]  # Grab first few lines
         return "\n".join(lines)

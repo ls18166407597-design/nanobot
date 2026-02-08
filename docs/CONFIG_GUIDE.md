@@ -1,84 +1,65 @@
-# Nanobot Configuration Guide
+# Nanobot Advanced Configuration Guide ⚙️
 
-This guide provides detailed instructions for configuring Nanobot's advanced tool suite.
+This guide provides instructions on how to configure your Nanobot secretary using the new CLI suite and automated workflows.
 
-## 🪄 Magic Onboarding (Recommended)
+## 🚀 CLI-First Configuration (Recommended)
 
-The easiest way to configure Nanobot is to use the **Magic Onboarding** feature. Simply start the agent and send your credentials in plain text.
+The easiest and safest way to manage your settings is via the built-in `nanobot config` command, which prevents syntax errors associated with manual JSON editing.
 
-1. Start the agent:
-   ```bash
-   nanobot agent
-   ```
-2. Send a message like:
-   > "Setup my GitHub with token `your_token_here` and Gmail with `your_email@gmail.com` and app password `xxxx-xxxx-xxxx-xxxx`."
+### 1. Basic Commands
+- **View current configuration**: `nanobot config list`
+- **Set a parameter**: `nanobot config set agents.defaults.model "gpt-4o"`
+- **Validate configuration**: `nanobot config check`
 
-Nanobot will automatically detect the credentials, verify them, and save the configuration for you.
-
----
-
-## ⚙️ Manual Configuration
-
-If you prefer to configure tools manually, you can edit the JSON files in `~/.nanobot/`.
-
-### 📧 Gmail
-- **File**: `~/.nanobot/gmail_config.json`
-- **Fields**:
-  - `email`: Your Gmail address.
-  - `app_password`: A 16-character App Password generated from your Google Account settings.
-  - `imap_server`: (Optional) Defaults to `imap.gmail.com`.
-  - `smtp_server`: (Optional) Defaults to `smtp.gmail.com`.
-
-### 🐙 GitHub
-- **File**: `~/.nanobot/github_config.json`
-- **Fields**:
-  - `personal_access_token`: A GitHub PAT with `repo` and `workflow` scopes.
-  - `username`: (Optional) Your GitHub username.
-
-### 📚 Knowledge Base (Obsidian)
-- **File**: `~/.nanobot/knowledge_config.json`
-- **Fields**:
-  - `vault_path`: The absolute path to your local Markdown/Obsidian vault.
-
-### 🔍 Web Search (Brave)
-- **File**: `~/.nanobot/web_config.json`
-- **Fields**:
-  - `brave_api_key`: Your Brave Search API key.
-
-### 🤖 LLM Providers
-- **File**: `~/.nanobot/config.json`
-- **Description**: Configure API keys and base URLs for your models in the `providers` array.
-- **Example Configuration**:
-  ```json
-  "providers": [
-    {
-      "name": "local-gemini",
-      "model": "gemini-3-flash",
-      "baseUrl": "http://127.0.0.1:8045/v1",
-      "apiKey": "YOUR_GEMINI_API_KEY"
-    },
-    {
-      "name": "qwen-7b",
-      "model": "Qwen/Qwen2.5-7B-Instruct",
-      "baseUrl": "https://api.siliconflow.cn/v1",
-      "apiKey": "YOUR_SILICONFLOW_API_KEY"
-    }
-  ]
-  ```
-- **Fields Reference**:
-  - `name`: Internal name used for routing (keep consistent with `SOUL.md` expert selection).
-  - `model`: The raw model name from the provider.
-  - `baseUrl`: The base URL for the API (must be OpenAI-compatible).
-  - `apiKey`: Your secret access token.
-
-### 🧠 Brain / Intelligence Configuration
-- **File**: `~/.nanobot/config.json` (under `brain` field)
-- **Fields**:
-  - `auto_summarize`: (bool) Enable auto-summarization for infinite context. Default `true`.
-  - `summary_threshold`: (int) Message count threshold to trigger summarization. Default `40`.
-  - `safety_guard`: (bool) Enable LLM safety guard for shell commands. Default `true`.
+### 2. Common Parameter Paths
+- **LLM Model**: `agents.defaults.model`
+- **Web Proxy**: `tools.web.proxy` (e.g., "http://127.0.0.1:1082")
+- **Safety Guard**: `brain.safetyGuard` (true/false)
 
 ---
 
-## 🛡️ Security Note
-Your credentials are **never** uploaded to any server. They are stored strictly on your local machine in the `~/.nanobot/` directory. For enhanced security, you can set `"restrictToWorkspace": true` in your main `config.json`.
+## 📂 Workspace Management
+
+Nanobot's "Soul and Memory" are stored in the workspace.
+- **Default Location**: `./workspace` (Repository local folder)
+- **Customization**: To change the primary workspace, run `nanobot config set agents.defaults.workspace "/your/path"`.
+
+**Workspace Hierarchy**:
+1. `IDENTITY.md`: Core mission and role.
+2. `SOUL.md`: Tone, values, and personality.
+3. `AGENTS.md`: Technical execution protocols.
+4. `TOOLS.md`: Tool Recipes and procedural guides.
+
+---
+
+## 🛠️ Core Service Setup
+
+### 1. Magic Onboarding
+Run `nanobot onboard` for a guided setup. Alternatively, you can directly send API keys to the agent during a session, and it will configure itself automatically.
+
+### 2. Multi-Channel Access (Gateway)
+Central config: `~/.nanobot/config.json`
+- **Telegram**: Configure `token` under `channels.telegram`.
+- **Feishu**: Configure `appId` and `appSecret` under `channels.feishu`.
+
+### 3. Network Proxy
+If you encounter timeouts with Google search or Telegram, ensure the proxy is set:
+```bash
+nanobot config set tools.web.proxy "http://127.0.0.1:1087"
+```
+
+## 🛡️ System Diagnostics (Doctor)
+If you suspect issues with vision or browser tools, run:
+```bash
+nanobot doctor
+```
+It automatically checks:
+- Python environment & `PYTHONPATH`
+- Playwright browser drivers
+- macOS Vision permissions
+- Network connectivity
+
+---
+<p align="center">
+  <em> Thanks for using ✨ nanobot! Your private senior executive secretary. 🐾</em>
+</p>

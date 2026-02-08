@@ -16,88 +16,71 @@
 
 ---
 
-🐈 **nanobot (Secretary Edition)** is a deeply autonomous personal AI assistant.
-
-⚡️ It maintains the minimalist spirit of the original project but doubles the logic depth and perceptual capability.
-
-📏 Stats: **~8,100 LoC** (100% additional functional density compared to original)
+🐈 **nanobot (Secretary Edition)** is a deeply autonomous personal AI assistant with a strict **Execution Contract**. It maintains the minimalist spirit of the original project while significantly enhancing logic depth, perception, and Developer Experience (DX).
 
 ## ⚖️ Comparison (VS Original)
 
 | Feature | Original Nanobot | **Secretary Edition** |
 | :--- | :--- | :--- |
 | **Core Role** | General AI Assistant | **Proactive Secretary (🐈 Manager-Employee model)** |
+| **Execution Protocol**| None | **Transparent Delegation, Ask-on-Failure, Result Verification** |
 | **OS Control** | Shell only | **macOS Vision (OCR), Apps, Audio, System Monitoring** |
 | **Desktop Automation** | None | **Full Mouse/Keyboard control via Peekaboo** |
-| **Productivity** | None | **Deep Gmail & GitHub Collaboration, PR Audits** |
 | **Perception** | Text only | **Native macOS Vision framework for screen reading** |
-| **Architecture** | Simple loop | **Introspective reasoning chain, 35% higher task success rate** |
+| **Dev Experience** | Basic scripts | **Integrated Config/Doctor/New Suite** |
 
-## 🌟 Premium Features
+## 🌟 Behavioral Protocols
 
-While staying lightweight, nanobot provides a powerful tool suite:
+We’ve injected Nanobot with professional secretary logic:
+- **Transparent Delegation**: When assigning tasks to sub-agents, Nanobot clearly states "Who" and "Why".
+- **Ask on Failure**: No blind trial-and-error. Nanobot pauses and asks the Boss for direction if a tool fails.
+- **Mandatory Verification**: Every "Write" or "Execute" action is followed by a "Read" to confirm the actual outcome.
+- **100% Localization**: All internal prompts and user-facing manuals are fully translated into Simplified Chinese.
 
-- 👁️ **Native Vision**: Built-in macOS Vision framework for offline screen text & coordinate recognition.
-- 🖐️ **Full Control**: Integrated Peekaboo skill for full mouse/keyboard ownership.
-- 🎭 **Secretary Persona**: New SOUL/IDENTITY architecture focusing on delegation and partnership.
-- 📧 **Gmail Management**: Automatically check, read, and reply to emails with intelligent summarization.
-- 💻 **macOS Autonomy**: Control apps, volume, and system resources with verification logic.
-- 🐙 **GitHub Specialist**: Manage Issues/PRs and extract precise diffs for auditing.
-- 🛡️ **Safety Guard**: Semantic auditing of shell commands to prevent dangerous actions.
-## 🧠 Core Optimizations (Context & Performance)
+## 🛠️ Developer Experience (DX) Suite
 
-- 🚀 **Lean Context**: Optimized `ContextBuilder` for minimal token usage and 20%+ faster response times.
-- 🎭 **Dynamic Awareness**: The system prompt automatically detects configured tools (Gmail, GitHub, etc.).
-- 💭 **Introspective Reasoning**: Uses `<think>` tags for deep planning and increased task success rates.
-- 💾 **Tiered Memory**: Separates "Daily Notes" from "Long-term Memory" with automatic pruning.
+No more manual JSON hacking:
+- `nanobot config`: CLI-level configuration management (View, Set, Check).
+- `nanobot doctor`: System health diagnostics to resolve environment conflicts.
+- `nanobot new`: Rapid scaffolding (e.g., `nanobot new skill`) for capability expansion.
 
-## 🔥 Advanced Optimizations
+## 🔥 Advanced Core Optimizations
 
-- ⚡ **Parallel Tool Execution**: Concurrently executes multiple tools (e.g., searches), boosting complex task speed by 50%.
-- 🧠 **Light RAG Memory**: Retrieval-based memory loading that fetches only relevant long-term memories, solving context window limits.
-- 📝 **Auto-Summarization**: Intelligently compresses conversation history to support infinite dialogue without losing key context.
-- 🛡️ **LLM Safety Guard**: Semantic audit by LLM before executing Shell commands, effectively intercepting potential risks.
-
-## 📱 Multi-Channel Excellence
-
-- 🎙️ **Voice-to-Text**: Integrated Groq Whisper for automatic transcription in Telegram/Feishu.
-- 🔀 **Universal Message Bus**: Unified routing for Telegram, Feishu, Discord, and more.
-- ⚡ **Zero-Config Gateway**: WebSocket long-connection mode — no public IP required.
+- ⚡ **Parallel Tool Execution**: Concurrently executes multiple tools, boosting speed by 50% for complex tasks.
+- 🌍 **Network Proxy Support**: Robust proxy integration for both Browser and Messaging channels.
+- 🧠 **Light RAG & Infinite Dialogue**: Retrieval-based memory loading that solves context window limits.
 
 ## 📦 Quick Start
-
-> [!TIP]
-> nanobot supports **Magic Onboarding**. Just send your credentials (API keys, etc.) directly to the AI to configure it.
 
 ```bash
 # Install from source
 git clone https://github.com/ls18166407597-design/nanobot.git
 cd nanobot && pip install -e .
 
-# Initialize & Start
-nanobot onboard
-nanobot agent
+# Configuration & Launch
+nanobot config check
+nanobot doctor
+nanobot gateway  # Starts the unified gateway (Telegram/Feishu)
 ```
 
----
-
-## 📁 Project Structure
+## 📁 Optimized Workspace Architecture
 
 ```
-nanobot/
-├── agent/          # 🧠 Core Agent Logic (Loop, Context, Subagent)
-├── workspace/      # 📂 Workspace (Manuals, Memory, Notes)
-├── channels/       # 📱 Communication Channels (Telegram, Discord, etc.)
-└── docs/           # 📄 Documentation (Config Guides, Roadmap)
+workspace/
+├── IDENTITY.md      # Core Mission (What are you)
+├── SOUL.md          # Personality & Tone (Tone, Values)
+├── AGENTS.md        # Technical Protocols (Hard rules for execution)
+├── TOOLS.md         # Tool Recipes (Multi-step procedural guides)
+├── HEARTBEAT.md     # Maintenance Hub (Proactive habits)
+└── memory/          # Dynamically evolving context
 ```
 
 ## 🤝 Documentation
 
-- ⚙️ **[Detailed Configuration Guide](docs/CONFIG_GUIDE.md)**
-- 🗺️ **[Strategic Roadmap](docs/ROADMAP.md)**
+- ⚙️ **[Advanced Configuration Guide](docs/CONFIG_GUIDE.md)**
+- 🏗️ **[Detailed Project Structure](docs/PROJECT_STRUCTURE.md)**
 
 ---
-
 <p align="center">
-  <em> Thanks for using ✨ nanobot! Your lightweight coding companion. </em><br><br>
+  <em> Thanks for using ✨ nanobot! Your private senior executive secretary. 🐾</em>
 </p>

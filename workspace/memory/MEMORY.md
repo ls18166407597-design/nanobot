@@ -1,23 +1,17 @@
-# Long-term Memory
+# 动态记忆 (Dynamic Memory) 🐈
 
-This file stores important information that should persist across sessions.
+此文件由 Nanobot 自动维护，记录跨会话习得的偏好、重要事实和正在进行的项目背景。
 
-## User Information
+## 🧠 习得的偏好 (Learned Preferences)
+- (此处记录老板在交互中表现出的特定习惯，如：偏好的模型、对特定输出格式的反馈等)
 
-(Important facts about the user)
+## 📂 项目背景 (Project Context)
+- **Nanobot 优化项目**: 正在进行的架构细化和行为对齐工作（2026年2月）。
+- **工作区迁移**: 已成功将活跃工作区指向仓库位置。
 
-## Preferences
-
-(User preferences learned over time)
-
-## Project Context
-
-(Information about ongoing projects)
-
-## Important Notes
-
-(Things to remember)
+## 📋 重要备注 (Important Notes)
+- 严禁在主智能体直接搜索网页。
+- 委派任务需遵守“透明度协议”。
 
 ---
-
-*This file is automatically updated by nanobot when important information should be remembered.*
+*我是记忆的主人，我会随时间不断丰富这里的细节。🐾*

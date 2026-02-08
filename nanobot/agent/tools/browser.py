@@ -24,6 +24,11 @@ class BrowserTool(Tool):
     - browse: Open a specific URL and extract its readable content.
     - install: Install the necessary browser binaries (run this first if you get a Missing Browser error).
     """
+
+    def __init__(self, proxy: str | None = None):
+        super().__init__()
+        self.proxy = proxy
+
     parameters = {
         "type": "object",
         "properties": {
@@ -114,8 +119,12 @@ class BrowserTool(Tool):
         config = await self._get_browser_config()
         try:
             async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=True, **config)
-                page = await browser.new_page()
+                launch_args = {"headless": True, **config}
+                if self.proxy:
+                    launch_args["proxy"] = {"server": self.proxy}
+                browser = await p.chromium.launch(**launch_args)
+                user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                page = await browser.new_page(user_agent=user_agent)
                 
                 # Smart Routing: Add site: operator if specific keywords are found
                 q_lower = query.lower()
@@ -132,10 +141,10 @@ class BrowserTool(Tool):
                 # Search URL and Selector based on engine
                 if engine == "google":
                     search_url = f"https://www.google.com/search?q={query}"
-                    result_selector = ".g"  # Google's result container
+                    result_selector = ".g, div.g, #search .g"
                 else:
                     search_url = f"https://www.bing.com/search?q={query}"
-                    result_selector = ".b_algo" # Bing's result container
+                    result_selector = ".b_algo, #b_results .b_algo, li.b_algo, div.ans"
 
                 logger.info(f"Searching ({engine}): {search_url}")
                 
@@ -143,37 +152,62 @@ class BrowserTool(Tool):
                 
                 # Wait for results to load
                 try:
-                    await page.wait_for_selector(result_selector, timeout=5000)
+                    await page.wait_for_selector(result_selector, timeout=15000)
                 except Exception:
                     logger.warning(f"Timeout waiting for search results on {engine}")
                 
                 # Extraction logic for both engines
-                results = await page.evaluate(f'''(selector) => {{
-                    const items = document.querySelectorAll(selector);
-                    return Array.from(items).slice(0, 5).map(item => {{
+                results = await page.evaluate(f'''(selector_str) => {{
+                    const selectors = selector_str.split(", ");
+                    let items = [];
+                    let activeSelector = "";
+                    for (const sel of selectors) {{
+                        const found = document.querySelectorAll(sel);
+                        if (found.length > 0) {{
+                            items = Array.from(found);
+                            activeSelector = sel;
+                            break;
+                        }}
+                    }}
+
+                    if (items.length === 0) {{
+                        // Very broad fallback: look for any links that look like search results
+                        const allLinks = Array.from(document.querySelectorAll("a[href^='http']"));
+                        items = allLinks.filter(a => {{
+                            const href = a.href;
+                            // Exclude common search engine internal links
+                            return !href.includes("google.com") && 
+                                   !href.includes("bing.com") && 
+                                   !href.includes("microsoft.com") && 
+                                   !href.includes("javascript:") &&
+                                   a.innerText.trim().length > 10;
+                        }}).slice(0, 5).map(a => a.parentElement); 
+                        if (items.length > 0) activeSelector = "fallback";
+                    }}
+
+                    return items.slice(0, 5).map(item => {{
                         let title = "No title";
                         let url = "No URL";
                         let snippet = "No description";
 
                         // Google Structure
-                        if (selector === ".g") {{
+                        if (activeSelector.includes(".g")) {{
                             const h3 = item.querySelector("h3");
                             const a = item.querySelector("a");
-                            const s = item.querySelector(".VwiC3b") || item.querySelector(".IsZvec"); // Common snippet classes
-                            if (h3) title = h3.innerText;
+                            const s = item.querySelector(".VwiC3b") || item.querySelector(".IsZvec");
+                            if (h3) title = h3.innerText.split("\\n")[0];
                             if (a) url = a.href;
                             if (s) snippet = s.innerText;
                         }} 
-                        // Bing Structure
+                        // Bing Structure or Fallback
                         else {{
-                            const h2 = item.querySelector("h2");
-                            const a = h2 ? h2.querySelector("a") : null;
-                            const s = item.querySelector(".b_caption p") || item.querySelector(".b_lineclamp2") || item.querySelector(".b_algo_snippet");
-                            if (h2) title = h2.innerText;
+                            const h2 = item.querySelector("h2") || item.querySelector("h3") || item;
+                            const a = item.querySelector("a");
+                            const s = item.querySelector(".b_caption p") || item.querySelector(".b_lineclamp2") || item.querySelector(".b_algo_snippet") || item;
+                            if (h2) title = h2.innerText.split("\\n")[0];
                             if (a) url = a.href;
-                            if (s) snippet = s.innerText;
+                            if (s && s !== item) snippet = s.innerText;
                         }}
-
                         return {{ title, url, snippet }};
                     }});
                 }}''', result_selector)

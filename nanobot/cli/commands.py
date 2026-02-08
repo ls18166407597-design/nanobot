@@ -15,6 +15,14 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 
+from nanobot.cli.config import app as config_app
+from nanobot.cli.new import app as new_app
+from nanobot.cli.doctor import app as doctor_app
+
+app.add_typer(config_app, name="config")
+app.add_typer(new_app, name="new")
+app.add_typer(doctor_app, name="doctor")
+
 console = Console()
 
 
@@ -163,7 +171,7 @@ def gateway(
     from nanobot.cron.service import CronService
     from nanobot.cron.types import CronJob
     from nanobot.heartbeat.service import HeartbeatService
-    from nanobot.providers.litellm_provider import LiteLLMProvider
+    from nanobot.providers.factory import ProviderFactory
 
     if verbose:
         import logging
@@ -177,7 +185,7 @@ def gateway(
     # Create components
     bus = MessageBus()
 
-    # Create provider (supports OpenRouter, Anthropic, OpenAI, Bedrock)
+    # Create provider (via factory)
     api_key = config.get_api_key()
     api_base = config.get_api_base()
     model = config.agents.defaults.model
@@ -188,13 +196,16 @@ def gateway(
         console.print("Set one in ~/.nanobot/config.json under providers.openrouter.apiKey")
         raise typer.Exit(1)
 
-    provider = LiteLLMProvider(
-        api_key=api_key, api_base=api_base, default_model=config.agents.defaults.model
+    provider = ProviderFactory.get_provider(
+        api_key=api_key, api_base=api_base, model=model
     )
 
     # Create cron service first (callback set after agent creation)
     cron_store_path = get_data_dir() / "cron" / "jobs.json"
     cron = CronService(cron_store_path)
+
+    # Determine web proxy (prefer tools.web.proxy, fallback to telegram channel proxy)
+    web_proxy = config.tools.web.proxy or config.channels.telegram.proxy
 
     # Create agent with cron service
     agent = AgentLoop(
@@ -208,6 +219,7 @@ def gateway(
         restrict_to_workspace=config.tools.restrict_to_workspace,
         brain_config=config.brain,
         providers_config=config.providers,
+        web_proxy=web_proxy,
     )
 
     # Set cron callback (needs agent)
@@ -291,7 +303,7 @@ def agent(
     from nanobot.agent.loop import AgentLoop
     from nanobot.bus.queue import MessageBus
     from nanobot.config.loader import load_config
-    from nanobot.providers.litellm_provider import LiteLLMProvider
+    from nanobot.providers.factory import ProviderFactory
 
     config = load_config()
 
@@ -305,8 +317,8 @@ def agent(
         raise typer.Exit(1)
 
     bus = MessageBus()
-    provider = LiteLLMProvider(
-        api_key=api_key, api_base=api_base, default_model=config.agents.defaults.model
+    provider = ProviderFactory.get_provider(
+        api_key=api_key, api_base=api_base, model=model
     )
 
     agent_loop = AgentLoop(

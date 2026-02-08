@@ -58,7 +58,7 @@ class ChannelsConfig(BaseModel):
 class AgentDefaults(BaseModel):
     """Default agent configuration."""
 
-    workspace: str = "~/.nanobot/workspace"
+    workspace: str = "./workspace"
     model: str = "anthropic/claude-opus-4-5"
     max_tokens: int = 8192
     temperature: float = 0.7
@@ -111,6 +111,7 @@ class WebToolsConfig(BaseModel):
     """Web tools configuration."""
 
     search: WebSearchConfig = Field(default_factory=WebSearchConfig)
+    proxy: str | None = None  # Proxy for browser tool
 
 
 class ExecToolConfig(BaseModel):

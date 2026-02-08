@@ -1,59 +1,51 @@
 # Nanobot 项目结构说明 🏗️
 
-这是 Nanobot 项目的全部文件布局。
+这是 Nanobot (秘书进阶版) 的完整文件布局与逻辑分层。
+
+## 📁 目录一览
 
 ```
 nanobot/
 ├── .nanobot/            # [配置中心] (位于用户主目录 ~/.nanobot)
-│   ├── config.json      #    - 全局配置文件 (API Key, 模型设置)
-│   └── sessions/        #    - 对话历史记录数据库
+│   ├── config.json      #    - 全局配置文件 (API Key, 代理, 渠道)
+│   └── sessions/        #    - 会话历史与短期记忆库
 │
-├── memory/              # [预留] 项目级记忆 (目前为空，用于扩展本地向量库)
+├── nanobot/                 # 🧠 核心源码 (核心包)
+│   ├── agent/               #    - [大脑] 智能体循环与上下文管理
+│   │   ├── loop.py          #      - 观察-思考-行动-评估循环
+│   │   ├── subagent.py      #      - 子智能体管理逻辑
+│   │   └── tools/           #      - 内置核心工具 (Browser, Vision, Filesystem)
+│   ├── cli/                 #    - [终端] DX 调试套件 (config, doctor, new)
+│   ├── channels/            #    - [渠道] 统一消息网关 (Telegram, Feishu)
+│   └── providers/           #    - [适配] 多模型统一调用工厂
 │
-├── nanobot/                 # 🧠 核心源码
-│   ├── agent/               #    - [核心] 智能体逻辑 (大脑)
-│   │   ├── loop.py          #      - 主循环 (接收消息 -> 思考 -> 工具 -> 回复)
-│   │   ├── context.py       #      - 上下文管理 (长短期记忆拼接)
-│   │   ├── models.py        #      - 模型适配器 (SiliconFlow, Local Gemini)
-│   │   ├── memory.py        #      - 记忆检索模块 (RAG)
-│   │   └── tools/           #    - [工具箱] 内置 Python 工具
-│   │       ├── mac_vision.py#      - [新增] macOS 原生视觉 (OCR & 坐标)
-│   │       ├── browser.py   #      - [核心] 本地浏览器工具 (Playwright)
-│   │       ├── codebase.py  #      - 代码库搜索工具
-│   │       ├── file.py      #      - 文件读写工具
-│   │       └── ...
-│   ├── channels/            #    - [通讯] 消息网关
-│   │   ├── telegram.py      #      - Telegram 机器人适配器
-│   │   └── discord.py       #      - Discord 机器人适配器
-│   ├── cli/                 #    - [终端] 命令行工具 (nanobot onboard/agent)
-│   └── brain/               #    - [思考] 决策逻辑与安全守卫
+├── workspace/               # 📂 活跃工作区 (灵魂、指令与主动性)
+│   ├── IDENTITY.md          #    - [核心] 身份与使命
+│   ├── SOUL.md              #    - [性格] 语气、价值观、性格标签
+│   ├── AGENTS.md            #    - [协议] 技术硬协议与委派逻辑
+│   ├── TOOLS.md             #    - [手册] 工具操作秘籍 (Recipes)
+│   ├── HEARTBEAT.md         #    - [主动] 秘书日常维护任务
+│   ├── skills/              #    - [能力] 外挂专家技能库
+│   └── memory/              #    - [记忆] 经整理的长短期知识库
 │
-├── workspace/               # 📂 本地工作区 (灵魂与记忆)
-│   ├── SOUL.md              #    - [核心] 角色设定 (Soul) - 定义 "你是谁"
-│   ├── IDENTITY.md          #    - [核心] 身份设定 (Persona) - 定义 "语气与人设"
-│   ├── TOOLS.md             #    - [文档] 工具手册 - 告诉 Agent 如何使用工具
-│   ├── skills/              #    - [技能] 外部技能库 (OpenClaw)
-│   │   └── peekaboo/        #      - [新增] 全能电脑控制 (视觉+动作)
-│   └── memory/              #    - [记忆] 长期记忆库 (对话日志与知识)
+├── docs/                    # 📄 深度文档
+│   ├── CONFIG_GUIDE_CN.md   #    - 高级配置指南 (推荐先看)
+│   └── PROJECT_STRUCTURE.md #    - 本文件
 │
-├── docs/                    # 📄 项目文档
-│   ├── PROJECT_STRUCTURE.md #    - 本文件
-│   ├── CONFIG_GUIDE.md      #    - 配置指南
-│   └── ROADMAP.md           #    - 开发路线图
-│
-├── README.md                # 📘 项目介绍 (中文)
-├── README_EN.md             # 📘 Project Readme (English)
-├── pyproject.toml           # ⚙️ Python 依赖与配置
-└── Dockerfile               # 🐳 容器化构建文件
+├── README.md                # 📘 项目主入口
+└── pyproject.toml           # ⚙️ 依赖与工具链配置
 ```
 
 ---
 
-## 🔑 关键文件速查
+## 🔑 核心组件说明
 
-| 文件/目录 | 作用 |
-| :--- | :--- |
-| **`nanobot/agent/loop.py`** | 整个系统的中枢神经，控制思考流程。 |
-| **`workspace/SOUL.md`** | 修改此文件可改变 AI 的性格和核心指令。 |
-| **`workspace/skills/peekaboo`** | 赋予 AI 操作电脑鼠标键盘的能力。 |
-| **`nanobot/agent/tools/mac_vision.py`** | 赋予 AI 看清屏幕并识别坐标的能力。 |
+| 组件 | 作用 | 修改场景 |
+| :--- | :--- | :--- |
+| **`nanobot/agent/loop.py`** | 系统的 CPU。 | 修改思考逻辑或错误重试机制。 |
+| **`workspace/AGENTS.md`** | 系统的 执行协议。 | 改变委派规则、搜索流程或失败处理。 |
+| **`workspace/HEARTBEAT.md`**| 系统的 生物钟。 | 增加定期的“秘书”自动巡检任务。 |
+| **`nanobot cli`** | 系统的 诊断工具箱。 | 使用 `nanobot doctor` 排查环境问题。 |
+
+---
+*注：本项目已将默认工作区设为 ./workspace，所有提示词修改将实时生效。🐾*

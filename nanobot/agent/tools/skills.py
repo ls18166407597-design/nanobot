@@ -100,10 +100,11 @@ class SkillsTool(Tool):
         matches = []
         for s in skills:
             if s["source"] == "library":
-                name = s["name"].lower()
-                desc = self.loader._get_skill_description(s["name"]).lower()
-                if query in name or query in desc:
-                    matches.append(f"- {s['name'].replace('lib:', '')}: {desc}")
+                name = str(s["name"])
+                desc = self.loader._get_skill_description(name).lower()
+                clean_name = name.replace("lib:", "")
+                if query in name.lower() or query in desc:
+                    matches.append(f"- {clean_name}: {desc}")
 
         if not matches:
             return f"No skills matching '{query}' found in the plaza."

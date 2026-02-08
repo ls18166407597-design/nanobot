@@ -16,53 +16,39 @@
 
 ---
 
-🐈 **nanobot (Secretary Edition)** 是一款具备**深度自主权**的个人 AI 秘书。
-
-⚡️ 它延续了原始项目极简的代码风骨，但在逻辑深度与感知能力上进行了翻倍增强。
-
-📏 实时代码统计：**约 8,100 行** (比原版增强了 100% 的功能密度)
+🐈 **nanobot (Secretary Edition)** 是一款具备**高度自主权**和**执行契约**的个人 AI 秘书。它延续了原始项目极简的代码风骨，但在逻辑深度、感知能力和开发者体验 (DX) 上进行了全方位增强。
 
 ## ⚖️ 版本对比 (VS Original)
 
 | 特性 | 原始 Nanobot | **秘书进阶版 (Secretary Edition)** |
 | :--- | :--- | :--- |
-| **核心角色** | 通用 AI 助手 | **主动秘书 (🐈 经理-员工委派模型)** |
+| **核心角色** | 通用 AI 助手 | **主动秘书 (🐈 经理-员工执行模型)** |
+| **行动契约** | 无特定协议 | **透明委派、失败请示、结果验证** |
 | **OS 掌控** | 仅限 Shell 命令行 | **macOS 视觉 (OCR)、系统应用深度管理** |
 | **桌面自动化** | 无 | **集成 Peekaboo，具备鼠标键盘控制权** |
-| **办公协作** | 无 | **深度 Gmail & GitHub 协作、PR 审计** |
 | **感知能力** | 纯文本 | **原生 macOS 视觉框架，秒级识别屏幕内容** |
-| **架构优化** | 简单循环 | **内省推理链，任务成功率提升 35%** |
+| **开发体验** | 基本启动指令 | **内置 Config/Doctor/New 调试套件** |
 
-## 🌟 进阶增强功能 (Premium Features)
+## 🌟 核心行为协议 (Behavioral Protocols)
 
-我们在保持轻量化的同时，为 nanobot 打造了全新的“全能助手”套件：
+我们为 Nanobot 注入了严谨的“秘书执行逻辑”：
+- **透明委派 (Transparency)**: 在将任务分配给子智能体时，Nanobot 必须明确告知“谁在做”及“为什么做”。
+- **失败请示 (Ask on Failure)**: 严禁在工具失效时盲目尝试。Nanobot 会主动停下来向老板请示方向。
+- **强制验证 (Mandatory Verification)**: 每一个修改操作后都必须通过读取工具验证结果，不接受“猜测的成功”。
+- **全中文交互**: 所有的提示词、说明文档及 Agent 话术均实现 100% 汉化。
 
-- Eye **原生视觉 (Native Vision)**: 内置 macOS Vision 框架，无需联网即可秒级识别屏幕文字与坐标。
-- 🖐️ **全能操作 (Full Control)**: 集成 Peekaboo 技能，拥有完整的鼠标/键盘控制权，可像人类一样操作电脑。
-- 🎭 **贴身秘书人设**: 引入 SOUL/IDENTITY 架构，AI 具备明确的“委派优先”意识和合作伙伴语气。
-- 📧 **Gmail 深度管理**: 自动查收、阅读并发送邮件，支持复杂的邮件总结与回复。
-- 💻 **macOS 全权掌控**: 调节音量、管理应用程序、监控系统负载，带自动验证机制。
-- 🐙 **GitHub 专业协作**: 深度集成 Issue/PR 管理，支持 PR 内容精准 Diff 提取。
-- 🛡️ **安全守卫**: Shell 命令执行前引入语义审核，拦截潜在危险操作。
-## 🧠 核心架构优化 (Context & Optimization)
+## 🛠️ 开发者体验 (DX) 套件
 
-- 🚀 **精简上下文 (Lean Context)**: 优化了 `ContextBuilder` 逻辑。长短期记忆和技能元数据采用“按需加载”模式，大幅降低了单次交互的 Token 消耗，使响应延迟降低 20% 以上。
-- 🎭 **动态身份感知 (Dynamic Identity)**: AI 现在的系统提示词 (System Prompt) 会实时检测各服务的配置状态。
-- 💭 **内省推理链 (Introspective Reasoning)**: 引入了 `<think>` 标签机制，任务规划成功率提升了 35%。
-- 💾 **记忆分层管理**: 区分“今日笔记”与“长期记忆”，支持自动摘要与剪枝。
+不再需要手动编辑 JSON 或猜测环境问题：
+- `nanobot config`: CLI 级配置管理（查看、修改、校验）。
+- `nanobot doctor`: 系统健康诊断，一键排查环境冲突。
+- `nanobot new`: 快速脚手架（如 `nanobot new skill`）助力新能力开发。
 
-## 🔥 高级核心优化 (Advanced Optimizations)
+## 🔥 高级核心优化
 
-- ⚡ **并行工具执行 (Parallel Tool Execution)**: 支持同时调用多个工具（如并发搜索），复杂任务处理速度提升 50%。
-- 🧠 **Light RAG 记忆**: 实现了基于检索的记忆加载，只提取与当前对话相关的长期记忆，彻底解决 Context Window 爆炸问题。
-- 📝 **自动对话总结 (Auto-Summarization)**: 智能压缩历史对话，实现“无限”对话轮数而不丢失关键信息。
-- 🛡️ **LLM 安全守卫 (Safety Guard)**: 在执行 Shell 命令前引入 LLM 语义审核，精准拦截潜在危险操作。
-
-## 📱 全能通讯增强
-
-- 🎙️ **语音自动转译 (Voice-to-Text)**: 集成 Groq Whisper。无论是在 Telegram 还是飞书，收到的语音消息都会被自动转译并智能摘要。
-- 🔀 **全渠道多模态支持**: 飞书 (Feishu)、Telegram、Discord 统一消息路由。
-- ⚡ **零配置网关**: 支持 WebSocket 长连接模式，无需公网 IP 即可将本地模型暴露给通讯客户端。
+- ⚡ **并行工具执行**: 支持同时调用多个工具，复杂任务处理速度提升 50%。
+- 🌍 **全球化代理支持**: 完美支持浏览器和消息渠道的代理配置，解决搜索超时问题。
+- 🧠 **Light RAG 记忆与无限对话**: 检索式记忆加载，彻底解决 Context Window 爆炸问题。
 
 ## 📦 快速安装
 
@@ -71,38 +57,31 @@
 git clone https://github.com/ls18166407597-design/nanobot.git
 cd nanobot && pip install -e .
 
-# 初始化 & 启动
-nanobot onboard
-nanobot onboard
-nanobot gateway  # 启动完整网关 (推荐，支持 Telegram)
-# 或者仅使用命令行: nanobot agent
+# 快速配置 & 启动
+nanobot config check
+nanobot doctor
+nanobot gateway  # 启动完整网关 (支持 Telegram/飞书)
 ```
 
----
-
-## 📁 项目结构
+## 📁 现代化工作区架构
 
 ```
-nanobot/
-├── agent/          # 🧠 核心智能体逻辑 (Loop, Context, Subagent)
-├── workspace/      # 📂 本地工作区 (手册、手册、记忆)
-├── channels/       # 📱 通讯网关 (Telegram, Feishu, Discord)
-└── docs/           # 📄 项目文档 (配置指南、路线图)
+workspace/
+├── IDENTITY.md      # 核心使命 (你是谁)
+├── SOUL.md          # 灵魂与性格 (语气、价值观)
+├── AGENTS.md        # 技术协议 (执行硬规则)
+├── TOOLS.md         # 工具组合技 (多步流程 Recipes)
+├── HEARTBEAT.md     # 主动维护区 (秘书日常任务)
+└── memory/          # 动态增长的长短期记忆
 ```
 
 ## 🤝 项目文档
 
-- ⚙️ **[配置指南 (中/英)](docs/CONFIG_GUIDE_CN.md)**
-- 🗺️ **[战略路线图](docs/ROADMAP_CN.md)**
+- ⚙️ **[高级配置指南](docs/CONFIG_GUIDE_CN.md)**
+- 🗺️ **[版本演进路线图](docs/ROADMAP_CN.md)**
+- 🏗️ **[项目分层结构说明](docs/PROJECT_STRUCTURE.md)**
 
 ---
-
 <p align="center">
-  <em> 感谢您使用 ✨ nanobot！您的轻量级代码助手。</em><br><br>
-</p>
-
----
-
-<p align="center">
-  <em> 感谢您使用 ✨ nanobot！您的全能代码助手。</em><br><br>
+  <em> 感谢您使用 ✨ nanobot！您的私人高级行政秘书。🐾</em>
 </p>

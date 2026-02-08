@@ -22,6 +22,7 @@ from nanobot.bus.events import InboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.providers.base import LLMProvider
 from nanobot.agent.models import ModelRegistry
+from nanobot.providers.factory import ProviderFactory
 
 
 class SubagentManager:
@@ -42,6 +43,7 @@ class SubagentManager:
         exec_config: "ExecToolConfig | None" = None,
         restrict_to_workspace: bool = False,
         model_registry: "ModelRegistry | None" = None,
+        web_proxy: str | None = None,
     ):
         from nanobot.config.schema import ExecToolConfig
 
@@ -52,7 +54,9 @@ class SubagentManager:
         self.exec_config = exec_config or ExecToolConfig()
         self.restrict_to_workspace = restrict_to_workspace
         self.model_registry = model_registry
+        self.web_proxy = web_proxy
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
+        self._semaphore = asyncio.Semaphore(10)  # Limit to 10 concurrent subagents
 
     async def spawn(
         self,
@@ -134,161 +138,141 @@ class SubagentManager:
         use_free_provider: bool = False,
     ) -> None:
         """Execute the subagent task and announce the result."""
-        logger.info(f"Subagent [{task_id}] starting task: {label}")
+        async with self._semaphore:
+            logger.info(f"Subagent [{task_id}] starting task: {label}")
 
-        try:
-            # Select provider
-            provider = self.provider
-            run_model = model_override or self.model
+            try:
+                # Select provider and model
+                run_model = model_override or self.model
+                api_key = self.provider.api_key
+                api_base = self.provider.api_base
 
-            # 1. Check for explicit provider override based on model prefix
-            if model_override and self.model_registry:
-                # e.g. "gemini/gemini-2.0-flash" -> provider "gemini"
-                # e.g. "deepseek/deepseek-chat" -> provider "deepseek"
-                clean_model = model_override.lower()
-                matched_provider_info = None
+                # 1. Check for explicit provider override based on model prefix
+                if model_override and self.model_registry:
+                    clean_model = model_override.lower()
+                    for p_name, p_info in self.model_registry.providers.items():
+                        if clean_model.startswith(f"{p_name}/"):
+                             logger.info(f"Subagent [{task_id}] switching to provider '{p_info.name}'")
+                             api_key = p_info.api_key
+                             api_base = p_info.base_url
+                             break
                 
-                # Check direct prefix match with registered providers
-                for p_name, p_info in self.model_registry.providers.items():
-                    if clean_model.startswith(f"{p_name}/"):
-                         matched_provider_info = p_info
-                         break
-                
-                if matched_provider_info:
-                    try:
-                        from nanobot.providers.litellm_provider import LiteLLMProvider
-                        logger.info(f"Subagent [{task_id}] switching to provider '{matched_provider_info.name}' for model '{run_model}'")
-                        provider = LiteLLMProvider(
-                            api_key=matched_provider_info.api_key,
-                            api_base=matched_provider_info.base_url,
-                            default_model=run_model
-                        )
-                    except Exception as e:
-                        logger.warning(f"Failed to switch to specific provider {matched_provider_info.name}: {e}")
-
-            # 2. Check for free provider strategy (only if no specific override or override failed?)
-            # Valid if use_free_provider is True AND we didn't just switch to a specific one requested by user.
-            # If user requested 'gemini/...', we stick to that. 
-            # If user didn't specify model (model_override is None), then we might try free.
-            elif use_free_provider and self.model_registry and not model_override:
-                free_info = self.model_registry.get_provider("free_first")
-                if free_info:
-                    try:
-                        # Instantiate a temporary provider
-                        from nanobot.providers.litellm_provider import LiteLLMProvider
-
-                        # Use the first available model from the free provider if no override
-                        if not model_override and free_info.models:
+                # 2. Check for free provider strategy
+                elif use_free_provider and self.model_registry and not model_override:
+                    free_info = self.model_registry.get_provider("free_first")
+                    if free_info:
+                        logger.info(f"Subagent [{task_id}] switching to free provider: {free_info.name}")
+                        api_key = free_info.api_key
+                        api_base = free_info.base_url
+                        if free_info.models:
                             run_model = free_info.models[0]
 
-                        # Create provider instance
-                        provider = LiteLLMProvider(
-                            api_key=free_info.api_key,
-                            api_base=free_info.base_url,
-                            default_model=run_model,
-                        )
-                        logger.info(
-                            f"Subagent [{task_id}] switched to free provider: {free_info.name} (model: {run_model})"
-                        )
-                    except Exception as e:
-                        logger.warning(
-                            f"Failed to switch to free provider: {e}. Falling back to main provider."
-                        )
-
-            # Build subagent tools (no message tool, no spawn tool)
-            tools = ToolRegistry()
-            allowed_dir = self.workspace if self.restrict_to_workspace else None
-            tools.register(ReadFileTool(allowed_dir=allowed_dir))
-            tools.register(WriteFileTool(allowed_dir=allowed_dir))
-            tools.register(ListDirTool(allowed_dir=allowed_dir))
-            tools.register(
-                ExecTool(
-                    working_dir=str(self.workspace),
-                    timeout=self.exec_config.timeout,
-                    restrict_to_workspace=self.restrict_to_workspace,
-                )
-            )
-            # Web tools
-            tools.register(BrowserTool())
-            tools.register(GmailTool())
-            tools.register(MacTool())
-            tools.register(GitHubTool())
-            tools.register(KnowledgeTool())
-            tools.register(MemoryTool(workspace=self.workspace))
-
-            # Build messages with subagent-specific prompt
-            system_prompt = self._build_subagent_prompt(task, thinking)
-            messages: list[dict[str, Any]] = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": task},
-            ]
-
-            # Run agent loop (limited iterations)
-            max_iterations = 15
-            iteration = 0
-            final_result: str | None = None
-
-            run_model = model_override or self.model
-
-            while iteration < max_iterations:
-                iteration += 1
-
-                response = await provider.chat(
-                    messages=messages,
-                    tools=tools.get_definitions(),
-                    model=run_model,
+                # Instantiate provider via factory
+                provider = ProviderFactory.get_provider(
+                    api_key=api_key,
+                    api_base=api_base,
+                    model=run_model
                 )
 
-                if response.has_tool_calls:
-                    # Add assistant message with tool calls
-                    tool_call_dicts = [
-                        {
-                            "id": tc.id,
-                            "type": "function",
-                            "function": {
-                                "name": tc.name,
-                                "arguments": json.dumps(tc.arguments),
-                            },
-                        }
-                        for tc in response.tool_calls
-                    ]
-                    messages.append(
-                        {
-                            "role": "assistant",
-                            "content": response.content or "",
-                            "tool_calls": tool_call_dicts,
-                        }
+                # Build subagent tools
+                tools = ToolRegistry()
+                allowed_dir = self.workspace if self.restrict_to_workspace else None
+                tools.register(ReadFileTool(allowed_dir=allowed_dir))
+                tools.register(WriteFileTool(allowed_dir=allowed_dir))
+                tools.register(ListDirTool(allowed_dir=allowed_dir))
+                tools.register(
+                    ExecTool(
+                        working_dir=str(self.workspace),
+                        timeout=self.exec_config.timeout,
+                        restrict_to_workspace=self.restrict_to_workspace,
+                    )
+                )
+                tools.register(BrowserTool(proxy=self.web_proxy))
+                tools.register(GmailTool())
+                tools.register(MacTool())
+                tools.register(GitHubTool())
+                tools.register(KnowledgeTool())
+                tools.register(MemoryTool(workspace=self.workspace))
+
+                # Build messages
+                system_prompt = self._build_subagent_prompt(task, thinking)
+                messages: list[dict[str, Any]] = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": task},
+                ]
+
+                # Run agent loop (limited iterations)
+                max_iterations = 15
+                iteration = 0
+                final_result: str | None = None
+
+                while iteration < max_iterations:
+                    iteration += 1
+
+                    response = await provider.chat(
+                        messages=messages,
+                        tools=tools.get_definitions(),
+                        model=run_model,
                     )
 
-                    # Execute tools
-                    for tool_call in response.tool_calls:
-                        args_str = json.dumps(tool_call.arguments)
-                        logger.debug(
-                            f"Subagent [{task_id}] executing: {tool_call.name} with arguments: {args_str}"
-                        )
-                        result = await tools.execute(tool_call.name, tool_call.arguments)
+                    if response.has_tool_calls:
+                        # Add assistant message with tool calls
+                        tool_call_dicts = [
+                            {
+                                "id": tc.id,
+                                "type": "function",
+                                "function": {
+                                    "name": tc.name,
+                                    "arguments": json.dumps(tc.arguments),
+                                },
+                            }
+                            for tc in response.tool_calls
+                        ]
                         messages.append(
                             {
-                                "role": "tool",
-                                "tool_call_id": tool_call.id,
-                                "name": tool_call.name,
-                                "content": result,
+                                "role": "assistant",
+                                "content": response.content or "",
+                                "tool_calls": tool_call_dicts,
                             }
                         )
-                else:
-                    final_result = response.content
-                    break
 
-            if final_result is None:
-                final_result = "Task completed but no final response was generated."
+                        # Parallel Tool Execution: Execute all tool calls in this turn concurrently
+                        tool_coros = []
+                        for tool_call in response.tool_calls:
+                            logger.debug(f"Subagent [{task_id}] executing: {tool_call.name}")
+                            tool_coros.append(tools.execute(tool_call.name, tool_call.arguments))
+                        
+                        results = await asyncio.gather(*tool_coros, return_exceptions=True)
 
-            logger.info(f"Subagent [{task_id}] completed successfully")
-            await self._announce_result(task_id, label, task, final_result, origin, "ok")
+                        # Add results to messages
+                        for tool_call, result in zip(response.tool_calls, results):
+                            if isinstance(result, Exception):
+                                result_str = f"Error: {str(result)}"
+                            else:
+                                result_str = str(result)
+                            
+                            messages.append(
+                                {
+                                    "role": "tool",
+                                    "tool_call_id": tool_call.id,
+                                    "name": tool_call.name,
+                                    "content": result_str,
+                                }
+                            )
+                    else:
+                        final_result = response.content
+                        break
 
-        except Exception as e:
-            error_msg = f"Error: {str(e)}"
-            logger.error(f"Subagent [{task_id}] failed: {e}")
-            await self._announce_result(task_id, label, task, error_msg, origin, "error")
+                if final_result is None:
+                    final_result = "Task completed but no final response was generated."
+
+                logger.info(f"Subagent [{task_id}] completed successfully")
+                await self._announce_result(task_id, label, task, final_result, origin, "ok")
+
+            except Exception as e:
+                error_msg = f"Error: {str(e)}"
+                logger.error(f"Subagent [{task_id}] failed: {e}")
+                await self._announce_result(task_id, label, task, error_msg, origin, "error")
 
     async def _announce_result(
         self,
@@ -362,6 +346,19 @@ You are a subagent spawned by the main agent to complete a specific task.
 Your workspace is at: {self.workspace}
 
 When you have completed the task, provide a clear summary of your findings or actions."""
+
+    async def stop_all(self) -> None:
+        """Cancel all running subagent tasks."""
+        if not self._running_tasks:
+            return
+            
+        logger.info(f"Stopping {len(self._running_tasks)} running subagents...")
+        for task_id, task in self._running_tasks.items():
+            task.cancel()
+        
+        # Wait for all tasks to be cancelled
+        await asyncio.gather(*self._running_tasks.values(), return_exceptions=True)
+        self._running_tasks.clear()
 
     def get_running_count(self) -> int:
         """Return the number of currently running subagents."""

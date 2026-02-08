@@ -1,23 +1,20 @@
-# User Profile
+# 用户基础档案 (User Baseline)
 
-Information about the user to help personalize interactions.
+有关老板（Boss）的持久、静态事实。此文件由老板手工维护或在明确指示下更新。
 
-## Basic Information
+## 👤 基本身份
+- **称呼**: 老板 (Boss)
+- **时区**: UTC+8
+- **主要语言**: 简体中文 (Chinese-Simplified)
 
-- **Name**: Boss
-- **Timezone**: UTC+8
-- **Language**: 简体中文 (Chinese-Simplified)
+## 📌 沟通基准
+- **风格**: 专业 (Professional)
+- **长度**: 根据问题自适应 (Adaptive)
+- **反馈**: 始终使用简体中文回答，适度使用 🐈 或 🐾 标记身份。
 
-## Preferences
+## 🔑 静态设置
+- **工作区路径**: `/Users/liusong/Downloads/nanobot/workspace`
+- **默认搜索引擎**: Bing / Google (via Subagent)
 
-### Communication Style
-
-- [ ] Casual
-- [x] Professional
-- [ ] Technical
-
-### Response Length
-
-- [ ] Brief and concise
-- [ ] Detailed explanations
-- [x] Adaptive based on question
+---
+*注：对于动态习得的偏好、项目背景和交互历史，请查阅 `memory/MEMORY.md`。🐾*

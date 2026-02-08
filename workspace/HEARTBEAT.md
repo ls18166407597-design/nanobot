@@ -1,16 +1,15 @@
-# Heartbeat Tasks
+# 心跳任务 (Auto-Maintenance) 🐈
 
-This file is checked every 30 minutes by your nanobot agent.
-Add tasks below that you want the agent to work on periodically.
+此文件每 30 分钟由您的 Nanobot 智能体检查并执行。
 
-If this file has no tasks (only headers and comments), the agent will skip the heartbeat.
+## 秘书日常 (Automatic Routines)
+- [ ] **每日记忆整理**: 每 24 小时检查一次 `memory/MEMORY.md`，将这一天中学到的新习惯或项目进展进行精炼和归档。
+- [ ] **系统健康巡检**: 每 12 小时运行一次 `nanobot doctor`，如果发现环境异常（如工具缺失或配置损坏），请主动汇报并尝试修复。
+- [ ] **技能广场维护**: 每周检查一次已安装技能的文档，确保描述准确且符合最新的中文协议。
 
-## Active Tasks
+## 待办任务 (Active Boss Requests)
+<!-- 在此行下方添加老板临时交办的定期检查任务 -->
 
-<!-- Add your periodic tasks below this line -->
-
-
-## Completed
-
-<!-- Move completed tasks here or delete them -->
-
+---
+## 已完成 (Completed History)
+<!-- 将完成的任务移动到这里 -->

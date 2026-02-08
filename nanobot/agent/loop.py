@@ -14,6 +14,7 @@ from loguru import logger
 
 from nanobot.agent.context import ContextBuilder
 from nanobot.agent.subagent import SubagentManager
+from nanobot.providers.factory import ProviderFactory
 from nanobot.agent.tools.cron import CronTool
 from nanobot.agent.tools.filesystem import (
     EditFileTool,
@@ -65,6 +66,7 @@ class AgentLoop:
         restrict_to_workspace: bool = False,
         brain_config: "BrainConfig | None" = None,
         providers_config: "ProvidersConfig | None" = None,
+        web_proxy: str | None = None,
     ):
         self.bus = bus
         self.provider = provider
@@ -77,6 +79,7 @@ class AgentLoop:
         self.cron_service = cron_service
         self.restrict_to_workspace = restrict_to_workspace
         self.brain_config = brain_config or BrainConfig()
+        self.web_proxy = web_proxy
 
         self.context = ContextBuilder(workspace, model=self.model)
         self.sessions = SessionManager(workspace)
@@ -95,6 +98,7 @@ class AgentLoop:
             exec_config=self.exec_config,
             restrict_to_workspace=restrict_to_workspace,
             model_registry=self.model_registry,
+            web_proxy=web_proxy,
         )
 
         self._running = False
@@ -187,8 +191,8 @@ class AgentLoop:
             )
         )
 
-        # Web tools
-        self.tools.register(BrowserTool())
+        # Web tools - Main agent delegates all browser tasks to sub-agents
+        # self.tools.register(BrowserTool(proxy=self.web_proxy))
 
         # Message tool
         message_tool = MessageTool(send_callback=self.bus.publish_outbound)

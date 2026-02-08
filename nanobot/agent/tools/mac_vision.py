@@ -132,24 +132,24 @@ class MacVisionTool(Tool):
         if not os.path.exists(image_path):
             return f"Error: File not found at {image_path}"
 
-        image_url = NSURL.fileURLWithPath_(image_path)
+        image_url = NSURL.fileURLWithPath_(image_path)  # pyre-ignore[16]
         if not image_url:
             return f"Error: Could not create NSURL from {image_path}"
 
         # Try to load as NSImage first to verify validity
         from AppKit import NSImage
-        ns_image = NSImage.alloc().initWithContentsOfURL_(image_url)
-        if not ns_image or not ns_image.isValid():
+        ns_image = NSImage.alloc().initWithContentsOfURL_(image_url)  # pyre-ignore[16]
+        if not ns_image or not ns_image.isValid():  # pyre-ignore[16]
              return f"Error: Invalid image file (NSImage failed to load)"
              
         # Vision handler
-        request_handler = Vision.VNImageRequestHandler.alloc().initWithURL_options_(
+        request_handler = Vision.VNImageRequestHandler.alloc().initWithURL_options_(  # pyre-ignore[16]
             image_url, None
         )
 
-        request = Vision.VNRecognizeTextRequest.alloc().init()
+        request = Vision.VNRecognizeTextRequest.alloc().init()  # pyre-ignore[16]
         # Set fast for now to test, accurate later
-        request.setRecognitionLevel_(Vision.VNRequestTextRecognitionLevelAccurate)
+        request.setRecognitionLevel_(Vision.VNRequestTextRecognitionLevelAccurate)  # pyre-ignore[16]
         request.setUsesLanguageCorrection_(True)
         # request.setrecognitionLanguages_(['zh-Hans', 'en-US']) # Optional
 
