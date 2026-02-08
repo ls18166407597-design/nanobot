@@ -363,7 +363,9 @@ class AgentLoop:
                         result_str = str(result)
                     
                     # Log first 200 chars safely
-                    log_content = str(result_str)[:200] if result_str else ""
+                    log_content = ""
+                    if result_str:
+                        log_content = result_str[:200]
                     logger.debug(f"Tool {tool_call.name} result: {log_content}...")
                         
                     messages = self.context.add_tool_result(
