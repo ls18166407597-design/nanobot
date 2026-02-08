@@ -120,11 +120,21 @@ class BrowserTool(Tool):
         try:
             async with async_playwright() as p:
                 launch_args = {"headless": True, **config}
+                
+                # Smart Proxy: Only use proxy for search engines/international sites
                 if self.proxy:
                     launch_args["proxy"] = {"server": self.proxy}
+                
                 browser = await p.chromium.launch(**launch_args)
                 user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                page = await browser.new_page(user_agent=user_agent)
+                
+                # Extra headers to avoid bot detection
+                extra_headers = {
+                    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+                    "Sec-Ch-Ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+                }
+                
+                page = await browser.new_page(user_agent=user_agent, extra_http_headers=extra_headers)
                 
                 # Smart Routing: Add site: operator if specific keywords are found
                 q_lower = query.lower()
@@ -236,13 +246,29 @@ class BrowserTool(Tool):
         from playwright.async_api import async_playwright
         
         config = await self._get_browser_config()
+        
+        # Smart Bypass: Avoid proxy for domestic domains to match Shadowrocket rules
+        proxy_config = None
+        is_domestic = any(d in url.lower() for d in [".cn", "jd.com", "taobao.com", "tmall.com", "baidu.com", "apple.com.cn"])
+        if self.proxy and not is_domestic:
+            proxy_config = {"server": self.proxy}
+            logger.debug(f"Using proxy for international URL: {url}")
+        elif self.proxy and is_domestic:
+            logger.debug(f"Bypassing proxy for domestic URL: {url}")
+
         try:
             async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=True, **config)
-                page = await browser.new_page()
+                browser = await p.chromium.launch(
+                    headless=True, 
+                    proxy=proxy_config,
+                    **config
+                )
+                
+                user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                page = await browser.new_page(user_agent=user_agent)
                 
                 logger.info(f"Browsing: {url}")
-                await page.goto(url)
+                await page.goto(url, wait_until="domcontentloaded", timeout=30000)
                 await asyncio.sleep(wait_ms / 1000.0)
                 
                 title = await page.title()
