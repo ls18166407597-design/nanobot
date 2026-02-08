@@ -6,19 +6,23 @@
 
 ```
 nanobot/
-├── .nanobot/            # [配置中心] (位于用户主目录 ~/.nanobot)
+├── .nanobot/            # [配置与数据中心] (默认位于项目根目录，可通过 NANOBOT_HOME 环境变量自定义)
 │   ├── config.json      #    - 全局配置文件 (API Key, 代理, 渠道)
 │   └── sessions/        #    - 会话历史与短期记忆库
 │
 ├── nanobot/                 # 🧠 核心源码 (核心包)
 │   ├── agent/               #    - [大脑] 智能体循环与上下文管理
 │   │   ├── loop.py          #      - 观察-思考-行动-评估循环
+│   │   ├── context_guard.py #      - [组件] 上下文卫士 (Token 压缩与监控)
 │   │   ├── subagent.py      #      - 子智能体管理逻辑
 │   │   └── tools/           #      - 内置核心工具 (Browser, Vision, Filesystem)
-│   ├── cli/                 #    - [终端] DX 调试套件 (config, doctor, new)
+│   ├── cli/                 #    - [终端] DX 调试套件 (config, doctor, logs, new)
+│   ├── bus/                 #    - [总线] 消息分发与命令队列 (CommandQueue)
 │   ├── channels/            #    - [渠道] 统一消息网关 (Telegram, Feishu)
+│   ├── utils/               #    - [工具] 审计 (Audit)、路径助手等
 │   └── providers/           #    - [适配] 多模型统一调用工厂
 │
+├── gateway.log              # 📄 网关运行日志 (使用 start.sh 自动生成)
 ├── workspace/               # 📂 活跃工作区 (灵魂、指令与主动性)
 │   ├── IDENTITY.md          #    - [核心] 身份与使命
 │   ├── SOUL.md              #    - [性格] 语气、价值观、性格标签

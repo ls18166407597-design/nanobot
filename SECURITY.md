@@ -22,13 +22,13 @@ We aim to respond to security reports within 48 hours.
 
 ```bash
 # ✅ Good: Store in config file with restricted permissions
-chmod 600 ~/.nanobot/config.json
+chmod 600 [nanobot home]/config.json
 
 # ❌ Bad: Hardcoding keys in code or committing them
 ```
 
 **Recommendations:**
-- Store API keys in `~/.nanobot/config.json` with file permissions set to `0600`
+- Store API keys in `config.json` within your local `.nanobot` directory with file permissions set to `0600`
 - Consider using environment variables for sensitive keys
 - Use OS keyring/credential manager for production deployments
 - Rotate API keys regularly
@@ -97,7 +97,7 @@ File operations have path traversal protection, but:
 **WhatsApp Bridge:**
 - The bridge runs on `localhost:3001` by default
 - If exposing to network, use proper authentication and TLS
-- Keep authentication data in `~/.nanobot/whatsapp-auth` secure (mode 0700)
+- Keep authentication data in `whatsapp-auth` (inside `.nanobot`) secure (mode 0700)
 
 ### 6. Dependency Security
 
@@ -144,15 +144,15 @@ For production use:
 
 3. **Set Proper Permissions**
    ```bash
-   chmod 700 ~/.nanobot
-   chmod 600 ~/.nanobot/config.json
-   chmod 700 ~/.nanobot/whatsapp-auth
+   chmod 700 .nanobot
+   chmod 600 .nanobot/config.json
+   chmod 700 .nanobot/whatsapp-auth
    ```
 
 4. **Enable Logging**
    ```bash
    # Configure log monitoring
-   tail -f ~/.nanobot/logs/nanobot.log
+   tail -f .nanobot/logs/nanobot.log
    ```
 
 5. **Use Rate Limiting**
@@ -185,7 +185,7 @@ For production use:
 
 - **Logs may contain sensitive information** - secure log files appropriately
 - **LLM providers see your prompts** - review their privacy policies
-- **Chat history is stored locally** - protect the `~/.nanobot` directory
+- **Chat history is stored locally** - protect your project's `.nanobot` directory
 - **API keys are in plain text** - use OS keyring for production
 
 ### 10. Incident Response
@@ -195,7 +195,7 @@ If you suspect a security breach:
 1. **Immediately revoke compromised API keys**
 2. **Review logs for unauthorized access**
    ```bash
-   grep "Access denied" ~/.nanobot/logs/nanobot.log
+   grep "Access denied" .nanobot/logs/nanobot.log
    ```
 3. **Check for unexpected file modifications**
 4. **Rotate all credentials**

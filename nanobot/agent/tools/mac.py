@@ -39,46 +39,74 @@ class MacTool(Tool):
                 "type": ["string", "integer"],
                 "description": "Value for the action (e.g. volume level 0-100, app name).",
             },
+            "confirm": {
+                "type": "boolean",
+                "description": "Set to true to confirm potentially disruptive actions.",
+            },
         },
         "required": ["action"],
     }
 
+    def __init__(self, confirm_mode: str = "warn") -> None:
+        self.confirm_mode = confirm_mode
+        self._confirm_actions = {
+            "set_volume",
+            "mute",
+            "unmute",
+            "open_app",
+            "close_app",
+            "activate_app",
+        }
+
     async def execute(self, action: str, **kwargs: Any) -> str:
         value = kwargs.get("value")
+        confirm = bool(kwargs.get("confirm"))
+
+        warning: str | None = None
+        if action in self._confirm_actions and not confirm:
+            if self.confirm_mode == "require":
+                return "Confirmation required: re-run with confirm=true."
+            if self.confirm_mode == "warn":
+                warning = "Warning: action executed without confirm=true."
 
         try:
+            result: str
             if action == "set_volume":
                 if value is None:
                     return "Error: 'value' (0-100) is required for 'set_volume'."
-                return self._set_volume(int(value))
+                result = self._set_volume(int(value))
             elif action == "get_volume":
-                return self._get_volume()
+                result = self._get_volume()
             elif action == "mute":
-                return self._set_mute(True)
+                result = self._set_mute(True)
             elif action == "unmute":
-                return self._set_mute(False)
+                result = self._set_mute(False)
             elif action == "open_app":
                 if not value:
                     return "Error: App name is required for 'open_app'."
-                return self._open_app(str(value))
+                result = self._open_app(str(value))
             elif action == "close_app":
                 if not value:
                     return "Error: App name is required for 'close_app'."
-                return self._close_app(str(value))
+                result = self._close_app(str(value))
             elif action == "list_apps":
-                return self._list_apps()
+                result = self._list_apps()
             elif action == "get_frontmost_app":
-                return self._get_frontmost_app()
+                result = self._get_frontmost_app()
             elif action == "activate_app":
                 if not value:
                     return "Error: App name is required for 'activate_app'."
-                return self._activate_app(str(value))
+                result = self._activate_app(str(value))
             elif action == "battery":
-                return self._get_battery()
+                result = self._get_battery()
             elif action == "system_stats":
-                return self._get_system_stats()
+                result = self._get_system_stats()
             else:
-                return f"Unknown action: {action}"
+                result = f"Unknown action: {action}"
+
+            if warning:
+                return f"{warning}\n{result}"
+            return result
         except Exception as e:
             return f"Mac Tool Error: {str(e)}"
 

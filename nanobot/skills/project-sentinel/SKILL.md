@@ -1,6 +1,6 @@
 ---
 name: project-sentinel
-description: Expert-level project auditing and safe GitHub synchronization. Handles linting, secret scanning, line-count monitoring, and bilingual documentation verification.
+description: 专家级项目审计和安全 GitHub 同步。处理 Linting、密钥扫描、行数监控和双语文档验证。
 metadata:
   {
     "nanobot": {
@@ -11,40 +11,40 @@ metadata:
   }
 ---
 
-# Project Sentinel 🛡️
+# 项目哨兵 (Project Sentinel) 🛡️
 
-Maintain the "Premium" quality of Nanobot with automated audits and secure synchronization.
+通过自动审计和安全同步来维护 Nanobot 的“优质”标准。
 
-## 📋 Core Commands
+## 📋 核心指令
 
-### 1. Full Audit (`audit-all`)
-Runs a comprehensive check including linting, formatting, secret scanning, and codebase stats.
+### 1. 全面审计 (`audit-all`)
+运行包括 Linting、格式化、密钥扫描和代码库统计在内的全面检查。
 ```bash
 bash nanobot/scripts/quality_audit.sh && bash nanobot/scripts/secret_scanner.sh
 ```
 
-### 2. Safe Push (`safe-push`)
-Performs a full audit and verifies bilingual sync before committing and pushing to GitHub.
+### 2. 安全推送 (`safe-push`)
+在提交和推送到 GitHub 之前执行全面审计并验证双语同步。
 ```bash
 bash nanobot/scripts/safe_push.sh "your commit message"
 ```
 
-### 3. Secret Scan Only (`scan-secrets`)
-Quickly check for exposed API keys or sensitive tokens.
+### 3. 仅扫描密钥 (`scan-secrets`)
+快速检查暴露的 API 密钥或敏感 Token。
 ```bash
 bash nanobot/scripts/secret_scanner.sh
 ```
 
 ---
 
-## 🛡️ Guiding Principles
-- **Never Push Lint Errors**: Maintain a clean, professional codebase.
-- **Sub-5k Core Lines**: Always monitor `bash core_agent_lines.sh` to keep the project lightweight.
-- **Bilingual First**: Every major feature update must have both `README.md` and `README_EN.md` updated.
-- **Zero Secrets**: Do not commit API keys. Use `config.json` for all credentials.
+## 🛡️ 指导原则
+- **决不推送 Lint 错误**: 维护干净、专业的代码库。
+- **核心代码 < 5k**: 始终监控 `bash core_agent_lines.sh` 以保持项目轻量化。
+- **双语优先**: 每一个主要功能更新必须同时更新 `README.md` 和 `README_EN.md`。
+- **零密钥**: 不要提交 API 密钥。使用 `config.json` 存储所有凭据。
 
-## 📊 Success Metrics
-- **Ruff**: 0 errors, 0 warnings.
-- **Format**: Consistent black-style formatting.
-- **Line Count**: Keep core agent logic under 5,000 lines.
-- **Sync**: Origin/main always matches the high-quality local state.
+## 📊 成功指标
+- **Ruff**: 0 错误, 0 警告。
+- **格式**: 一致的 black 风格格式。
+- **行数**: 保持核心代理逻辑在 5,000 行以下。
+- **同步**: Origin/main 始终匹配高质量的本地状态。

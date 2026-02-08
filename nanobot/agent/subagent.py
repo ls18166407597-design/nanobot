@@ -1,5 +1,6 @@
 import asyncio
 import json
+import time
 import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -19,8 +20,9 @@ from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.agent.tools.shell import ExecTool
 from nanobot.agent.tools.browser import BrowserTool
 from nanobot.bus.events import InboundMessage
+from nanobot.utils.audit import log_event
 from nanobot.bus.queue import MessageBus
-from nanobot.providers.base import LLMProvider
+from nanobot.providers.base import LLMProvider, LLMResponse
 from nanobot.agent.models import ModelRegistry
 from nanobot.providers.factory import ProviderFactory
 
@@ -67,6 +69,7 @@ class SubagentManager:
         origin_channel: str = "cli",
         origin_chat_id: str = "direct",
         use_free_provider: bool = True,
+        trace_id: str | None = None,
     ) -> str:
         """
         Spawn a subagent to execute a task in the background.
@@ -77,6 +80,7 @@ class SubagentManager:
             origin_channel: The channel to announce results to.
             origin_chat_id: The chat ID to announce results to.
             use_free_provider: If True, try to use a free provider from registry.
+            trace_id: Optional trace ID for tracking.
 
         Returns:
             Status message indicating the subagent was started.
@@ -97,14 +101,6 @@ class SubagentManager:
             free_info = self.model_registry.get_provider("free_first")
             if free_info:
                 logger.info(f"Subagent [{task_id}] using free provider: {free_info.name}")
-                # Create a temporary provider instance for this subagent
-                # We need to import OpenAIProvider dynamically or use a factory
-                # For now, we reuse the existing provider class if it supports base_url switching
-                # OR we assume the main provider is OpenAI-compatible and just create a new one.
-                # Since we don't have a factory here, let's try to assume OpenAICompatible for now
-                # or just modify the run_subagent to use a new provider instance if we can.
-                
-                # A safer way is to pass the provider_info to _run_subagent and let it create the provider
                 pass
         
         # Create background task
@@ -116,7 +112,8 @@ class SubagentManager:
                 origin, 
                 run_model, 
                 thinking,
-                use_free_provider=use_free_provider
+                use_free_provider=use_free_provider,
+                trace_id=trace_id
             )
         )
         self._running_tasks[task_id] = bg_task
@@ -136,10 +133,15 @@ class SubagentManager:
         model_override: str | None,
         thinking: bool,
         use_free_provider: bool = False,
+        trace_id: str | None = None,
     ) -> None:
         """Execute the subagent task and announce the result."""
         async with self._semaphore:
-            logger.info(f"Subagent [{task_id}] starting task: {label}")
+            log_prefix = f"[TraceID: {trace_id}] " if trace_id else ""
+            logger.info(f"{log_prefix}Subagent [{task_id}] starting task: {label}")
+
+            final_status = "error"
+            final_result = "Subagent terminated unexpectedly."
 
             try:
                 # Select provider and model
@@ -147,21 +149,32 @@ class SubagentManager:
                 api_key = self.provider.api_key
                 api_base = self.provider.api_base
 
-                # 1. Check for explicit provider override based on model prefix
                 if model_override and self.model_registry:
                     clean_model = model_override.lower()
-                    for p_name, p_info in self.model_registry.providers.items():
-                        if clean_model.startswith(f"{p_name}/"):
-                             logger.info(f"Subagent [{task_id}] switching to provider '{p_info.name}'")
-                             api_key = p_info.api_key
-                             api_base = p_info.base_url
-                             break
+                    # First check for exact provider nickname match
+                    if clean_model in self.model_registry.providers:
+                         p_info = self.model_registry.providers[clean_model]
+                         logger.info(f"{log_prefix}Subagent [{task_id}] switching to provider nickname '{p_info.name}'")
+                         api_key = p_info.api_key
+                         api_base = p_info.base_url
+                         if p_info.default_model:
+                             run_model = p_info.default_model
+                         elif p_info.models:
+                             run_model = p_info.models[0]
+                    # Then check for p_name/model_id style
+                    else:
+                        for p_name, p_info in self.model_registry.providers.items():
+                            if clean_model.startswith(f"{p_name}/"):
+                                 logger.info(f"{log_prefix}Subagent [{task_id}] switching to provider '{p_info.name}'")
+                                 api_key = p_info.api_key
+                                 api_base = p_info.base_url
+                                 break
                 
                 # 2. Check for free provider strategy
                 elif use_free_provider and self.model_registry and not model_override:
                     free_info = self.model_registry.get_provider("free_first")
                     if free_info:
-                        logger.info(f"Subagent [{task_id}] switching to free provider: {free_info.name}")
+                        logger.info(f"{log_prefix}Subagent [{task_id}] switching to free provider: {free_info.name}")
                         api_key = free_info.api_key
                         api_base = free_info.base_url
                         if free_info.models:
@@ -204,15 +217,16 @@ class SubagentManager:
                 # Run agent loop (limited iterations)
                 max_iterations = 15
                 iteration = 0
-                final_result: str | None = None
-
+                
                 while iteration < max_iterations:
                     iteration += 1
 
-                    response = await provider.chat(
+                    # Call LLM with failover support
+                    response = await self._chat_with_failover(
                         messages=messages,
                         tools=tools.get_definitions(),
                         model=run_model,
+                        provider=provider
                     )
 
                     if response.has_tool_calls:
@@ -238,8 +252,18 @@ class SubagentManager:
 
                         # Parallel Tool Execution: Execute all tool calls in this turn concurrently
                         tool_coros = []
+                        tool_starts: dict[str, float] = {}
                         for tool_call in response.tool_calls:
-                            logger.debug(f"Subagent [{task_id}] executing: {tool_call.name}")
+                            logger.debug(f"{log_prefix}Subagent [{task_id}] executing: {tool_call.name}")
+                            tool_starts[tool_call.id] = time.perf_counter()
+                            log_event({
+                                "type": "tool_start",
+                                "trace_id": trace_id,
+                                "tool": tool_call.name,
+                                "tool_call_id": tool_call.id,
+                                "args_keys": list(tool_call.arguments.keys()),
+                                "subagent_task_id": task_id,
+                            })
                             tool_coros.append(tools.execute(tool_call.name, tool_call.arguments))
                         
                         results = await asyncio.gather(*tool_coros, return_exceptions=True)
@@ -250,6 +274,19 @@ class SubagentManager:
                                 result_str = f"Error: {str(result)}"
                             else:
                                 result_str = str(result)
+                            duration_s = None
+                            if tool_call.id in tool_starts:
+                                duration_s = round(time.perf_counter() - tool_starts[tool_call.id], 4)
+                            log_event({
+                                "type": "tool_end",
+                                "trace_id": trace_id,
+                                "tool": tool_call.name,
+                                "tool_call_id": tool_call.id,
+                                "status": "error" if isinstance(result, Exception) else "ok",
+                                "duration_s": duration_s,
+                                "result_len": len(result_str),
+                                "subagent_task_id": task_id,
+                            })
                             
                             messages.append(
                                 {
@@ -260,19 +297,23 @@ class SubagentManager:
                                 }
                             )
                     else:
-                        final_result = response.content
+                        final_result = str(response.content)
                         break
 
-                if final_result is None:
-                    final_result = "Task completed but no final response was generated."
-
-                logger.info(f"Subagent [{task_id}] completed successfully")
-                await self._announce_result(task_id, label, task, final_result, origin, "ok")
+                if iteration >= max_iterations and final_result is None:
+                    final_result = "Task stopped after maximum iterations without final response."
+                
+                final_status = "ok"
+                logger.info(f"{log_prefix}Subagent [{task_id}] completed successfully")
 
             except Exception as e:
-                error_msg = f"Error: {str(e)}"
-                logger.error(f"Subagent [{task_id}] failed: {e}")
-                await self._announce_result(task_id, label, task, error_msg, origin, "error")
+                final_result = f"Error: {str(e)}"
+                final_status = "error"
+                logger.error(f"{log_prefix}Subagent [{task_id}] failed: {e}")
+            
+            finally:
+                # GUARANTEE: Always announce the result, even if we crashed
+                await self._announce_result(task_id, label, task, final_result, origin, final_status, trace_id)
 
     async def _announce_result(
         self,
@@ -282,6 +323,7 @@ class SubagentManager:
         result: str,
         origin: dict[str, str],
         status: str,
+        trace_id: str | None = None,
     ) -> None:
         """Announce the subagent result to the main agent via the message bus."""
         status_text = "completed successfully" if status == "ok" else "failed"
@@ -299,14 +341,89 @@ Summarize this naturally for the user. Keep it brief (1-2 sentences). Do not men
         msg = InboundMessage(
             channel="system",
             sender_id="subagent",
-            chat_id=f"{origin['channel']}:{origin['chat_id']}",
+            chat_id=origin.get("chat_id", "system"),
             content=announce_content,
+            metadata={"origin": origin},
+            trace_id=trace_id if trace_id else str(uuid.uuid4())[:8],
         )
-
         await self.bus.publish_inbound(msg)
-        logger.debug(
-            f"Subagent [{task_id}] announced result to {origin['channel']}:{origin['chat_id']}"
-        )
+
+    async def _chat_with_failover(
+        self, 
+        messages: list[dict[str, Any]], 
+        tools: list[dict[str, Any]] | None,
+        model: str,
+        provider: "LLMProvider"
+    ) -> "LLMResponse":
+        """
+        Call LLM with automatic failover for subagents.
+        """
+        from nanobot.providers.factory import ProviderFactory
+
+        # List of candidate providers
+        candidates = []
+        
+        # 1. Primary provider for this subagent
+        candidates.append({
+            "name": "primary",
+            "provider": provider,
+            "model": model
+        })
+        
+        # 2. Registry providers (fallbacks)
+        if self.model_registry:
+            for p_name, p_info in self.model_registry.providers.items():
+                if p_info.base_url == provider.api_base and (p_info.default_model == model or p_info.name == model):
+                    continue
+                
+                fallback_provider = ProviderFactory.get_provider(
+                    model=p_info.default_model or (p_info.models[0] if p_info.models else model),
+                    api_key=p_info.api_key,
+                    api_base=p_info.base_url
+                )
+                candidates.append({
+                    "name": p_name,
+                    "provider": fallback_provider,
+                    "model": fallback_provider.default_model
+                })
+
+        last_error = None
+        for i, candidate in enumerate(candidates):
+            try:
+                if i > 0:
+                    await self._send_pulse_message(
+                        f"🐈 子任务 [{candidate['name']}] 正在接力执行，由于主脑响应较慢，已为您切换思考节点... 🐾"
+                    )
+
+                response = await candidate["provider"].chat(
+                    messages=messages,
+                    tools=tools,
+                    model=candidate["model"]
+                )
+                
+                if response.finish_reason == "error":
+                    raise Exception(response.content)
+                
+                return response
+                
+            except Exception as e:
+                last_error = e
+                logger.warning(f"Subagent failover to {candidate['name']} failed: {e}")
+                continue
+
+        from nanobot.providers.base import LLMResponse
+        return LLMResponse(content=f"Subagent failover failed: {last_error}", finish_reason="error")
+
+    async def _send_pulse_message(self, content: str) -> None:
+        """Send a proactive 'pulse' message from the subagent."""
+        # Note: Subagents use a different context, but we can publish to bus
+        from nanobot.bus.events import OutboundMessage
+        # We don't have direct chat_id here easily without passing it down, 
+        # but let's assume system channel broadcast for now or skip if too complex.
+        # For simplicity, let's just log it if we can't find a destination.
+        logger.info(f"[Subagent Pulse] {content}")
+
+        # logger.debug(f"Subagent announced result")
 
     def _build_subagent_prompt(self, task: str, thinking: bool = False) -> str:
         """Build a focused system prompt for the subagent."""

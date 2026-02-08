@@ -73,7 +73,7 @@ def onboard():
 
     console.print(f"\n{__logo__} nanobot is ready!")
     console.print("\nNext steps:")
-    console.print("  1. Add your API key to [cyan]~/.nanobot/config.json[/cyan]")
+    console.print("  1. Add your API key to [cyan]config.json[/cyan] in the data directory")
     console.print("     Get one at: https://openrouter.ai/keys")
     console.print('  2. Chat: [cyan]nanobot agent -m "Hello!"[/cyan]')
     console.print(
@@ -152,6 +152,66 @@ This file stores important information that should persist across sessions.
 """)
         console.print("  [dim]Created memory/MEMORY.md[/dim]")
 
+    # Create EXAMPLES.md
+    examples_file = workspace / "EXAMPLES.md"
+    if not examples_file.exists():
+        examples_file.write_text("""# 快速上手建议 (Quick Start)
+
+老板，您可以尝试输入以下命令来体验我的能力：
+
+1. **GitHub 助手**：`帮我列出 nanobot 项目最近的 5 个 issue`
+2. **网页总结**：`总结一下这个网页的内容：https://github.com/HKUDS/nanobot`
+3. **天气查询**：`今天北京天气怎么样？适合出门吗？`
+
+您可以直接在聊天窗口输入这些指令。🐾
+""")
+        console.print("  [dim]Created EXAMPLES.md[/dim]")
+
+
+# ============================================================================
+# Logging / Diagnostics
+# ============================================================================
+
+
+@app.command()
+def logs(
+    audit: bool = typer.Option(False, "--audit", "-a", help="Show audit log instead of gateway log"),
+    lines: int = typer.Option(50, "--lines", "-n", help="Number of lines to show"),
+    follow: bool = typer.Option(False, "--follow", "-f", help="Follow log output"),
+):
+    """View and follow nanobot logs."""
+    from nanobot.utils.helpers import get_log_path, get_audit_path
+    
+    path = get_audit_path() if audit else get_log_path()
+    
+    if not path.exists():
+        console.print(f"[red]Log file not found at {path}[/red]")
+        return
+
+    import time
+    
+    def print_last_n(p, n):
+        with open(p, "r", encoding="utf-8") as f:
+            all_lines = f.readlines()
+            for line in all_lines[-n:]:
+                console.print(line.strip())
+
+    print_last_n(path, lines)
+    
+    if follow:
+        console.print(f"\n[bold green]Following {path.name}...[/bold green] (Ctrl+C to stop)")
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                f.seek(0, 2) # Go to end
+                while True:
+                    line = f.readline()
+                    if not line:
+                        time.sleep(0.1)
+                        continue
+                    console.print(line.strip())
+        except KeyboardInterrupt:
+            pass
+
 
 # ============================================================================
 # Gateway / Server
@@ -193,7 +253,7 @@ def gateway(
 
     if not api_key and not is_bedrock:
         console.print("[red]Error: No API key configured.[/red]")
-        console.print("Set one in ~/.nanobot/config.json under providers.openrouter.apiKey")
+        console.print("Set one in config.json under providers.openrouter.apiKey")
         raise typer.Exit(1)
 
     provider = ProviderFactory.get_provider(
@@ -220,6 +280,9 @@ def gateway(
         brain_config=config.brain,
         providers_config=config.providers,
         web_proxy=web_proxy,
+        max_tokens=config.agents.defaults.max_tokens,
+        temperature=config.agents.defaults.temperature,
+        mac_confirm_mode=config.tools.mac.confirm_mode,
     )
 
     # Set cron callback (needs agent)
@@ -329,6 +392,9 @@ def agent(
         restrict_to_workspace=config.tools.restrict_to_workspace,
         brain_config=config.brain,
         providers_config=config.providers,
+        max_tokens=config.agents.defaults.max_tokens,
+        temperature=config.agents.defaults.temperature,
+        mac_confirm_mode=config.tools.mac.confirm_mode,
     )
 
     if message:
@@ -400,7 +466,8 @@ def _get_bridge_dir() -> Path:
     import subprocess
 
     # User's bridge location
-    user_bridge = Path.home() / ".nanobot" / "bridge"
+    from nanobot.utils.helpers import get_data_path
+    user_bridge = get_data_path() / "bridge"
 
     # Check if already built
     if (user_bridge / "dist" / "index.js").exists():

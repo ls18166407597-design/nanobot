@@ -108,7 +108,15 @@ class CronService:
         if not self._store:
             return
 
-        self.store_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            self.store_path.parent.mkdir(parents=True, exist_ok=True)
+        except PermissionError as e:
+            logger.error(
+                f"Permission denied creating cron directory at {self.store_path.parent}. "
+                "Set NANOBOT_HOME to a writable location. "
+                f"Error: {e}"
+            )
+            return
 
         data = {
             "version": self._store.version,
@@ -145,7 +153,14 @@ class CronService:
             ],
         }
 
-        self.store_path.write_text(json.dumps(data, indent=2))
+        try:
+            self.store_path.write_text(json.dumps(data, indent=2))
+        except PermissionError as e:
+            logger.error(
+                f"Permission denied writing cron store at {self.store_path}. "
+                "Set NANOBOT_HOME to a writable location. "
+                f"Error: {e}"
+            )
 
     async def start(self) -> None:
         """Start the cron service."""

@@ -16,10 +16,12 @@ class ProviderInfo:
     base_url: str
     api_key: str
     models: list[str] = field(default_factory=list)
+    default_model: str | None = None
     is_free: bool = False
     balance: float = 0.0
     currency: str = "USD"
     error: str | None = None
+    cooldown_until: float = 0.0  # Unix timestamp for cooldown end
 
 
 class ModelRegistry:
@@ -28,8 +30,42 @@ class ModelRegistry:
     def __init__(self):
         self.providers: dict[str, ProviderInfo] = {}
 
+    def report_failure(self, name: str, duration: float = 60.0) -> None:
+        """Report a failure for a provider, triggering cooldown."""
+        import time
+        if name in self.providers:
+            self.providers[name].cooldown_until = time.time() + duration
+            logger.warning(f"Provider {name} put on cooldown for {duration}s")
+
+    def get_active_providers(self, model: str | None = None) -> list[ProviderInfo]:
+        """
+        Get list of active providers (not in cooldown).
+        Args:
+            model: Optional model name filter.
+        """
+        import time
+        now = time.time()
+        active = []
+        
+        # Sort by free status (primary first logic handled by caller)
+        # Actually caller usually prepends primary. Here we return registry providers.
+        for p in self.providers.values():
+            if p.cooldown_until > now:
+                continue
+            
+            # Simple model check: if provider has explicit list, check it.
+            # If provider.models is empty, assume it supports everything (or we don't know).
+            if model and p.models and model not in p.models:
+                # If default_model matches, it's fine
+                if p.default_model != model:
+                    continue
+            
+            active.append(p)
+            
+        return active
+
     async def register(
-        self, base_url: str, api_key: str, name: str | None = None
+        self, base_url: str, api_key: str, name: str | None = None, default_model: str | None = None
     ) -> ProviderInfo:
         """
         Register a provider and check its status/quota.
@@ -38,6 +74,7 @@ class ModelRegistry:
             base_url: The API base URL (e.g., https://api.openai.com/v1)
             api_key: The API key
             name: Optional name for the provider
+            default_model: Optional default model for this provider
             
         Returns:
             ProviderInfo with updated status
@@ -45,12 +82,16 @@ class ModelRegistry:
         if not name:
             name = f"provider_{len(self.providers) + 1}"
 
-        info = ProviderInfo(name=name, base_url=base_url, api_key=api_key)
+        info = ProviderInfo(name=name, base_url=base_url, api_key=api_key, default_model=default_model)
         
         # Check quota/models
         await self._check_provider_status(info)
         
         self.providers[name] = info
+        if info.error:
+            logger.error(f"Registered provider {name} with ERROR: {info.error}")
+        else:
+            logger.info(f"Successfully registered provider {name} (models: {len(info.models)})")
         return info
 
     def get_provider(self, strategy: str = "free_first") -> ProviderInfo | None:
@@ -143,4 +184,4 @@ class ModelRegistry:
 
             except Exception as e:
                 info.error = str(e)
-                logger.warning(f"Failed to check provider {info.name}: {e}")
+                logger.warning(f"Failed to check provider {info.name} at {info.base_url}: {e}")

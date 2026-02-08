@@ -6,7 +6,7 @@ from github import Auth, Github
 
 from nanobot.agent.tools.base import Tool
 
-CONFIG_PATH = os.path.expanduser("~/.nanobot/github_config.json")
+from nanobot.config.loader import get_data_dir
 
 
 class GitHubTool(Tool):
@@ -21,7 +21,7 @@ class GitHubTool(Tool):
     - Repos: List my repos.
 
     Setup:
-    Requires '~/.nanobot/github_config.json' with:
+    Requires 'github_config.json' in your nanobot home with:
     { "token": "ghp_..." }
     """
     parameters = {
@@ -37,6 +37,7 @@ class GitHubTool(Tool):
                     "list_prs",
                     "get_pr_diff",
                     "list_repos",
+                    "list_commits",
                     "setup",
                 ],
                 "description": "The action to perform.",
@@ -57,10 +58,11 @@ class GitHubTool(Tool):
     }
 
     def _load_config(self):
-        if not os.path.exists(CONFIG_PATH):
+        config_path = get_data_dir() / "github_config.json"
+        if not config_path.exists():
             return None
         try:
-            with open(CONFIG_PATH, "r") as f:
+            with open(config_path, "r") as f:
                 return json.load(f)
         except Exception:
             return None
@@ -134,6 +136,12 @@ class GitHubTool(Tool):
 
             elif action == "list_repos":
                 return self._list_repos(g, kwargs.get("limit", 10))
+
+            elif action == "list_commits":
+                repo_name = kwargs.get("repo")
+                if not repo_name:
+                    return "Error: 'repo' is required."
+                return self._list_commits(g, repo_name, kwargs.get("limit", 10))
 
             else:
                 return f"Unknown action: {action}"
@@ -210,5 +218,20 @@ class GitHubTool(Tool):
             output.append(
                 f"{repo.full_name} ({repo.stargazers_count}★) - {repo.description or 'No desc'}"
             )
+            count += 1
+        return "\n".join(output)
+
+    def _list_commits(self, g, repo_name, limit):
+        repo = g.get_repo(repo_name)
+        commits = repo.get_commits()
+        output = [f"Recent commits in {repo_name}:"]
+        count = 0
+        for commit in commits:
+            if count >= limit:
+                break
+            msg = commit.commit.message.split("\n")[0]
+            author = commit.commit.author.name
+            date = commit.commit.author.date.strftime("%Y-%m-%d")
+            output.append(f"[{date}] {commit.sha[:7]} {msg} (by {author})")
             count += 1
         return "\n".join(output)

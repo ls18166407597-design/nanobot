@@ -1,6 +1,6 @@
 ---
 name: project-audit
-description: Comprehensive tool for auditing code quality, structural integrity, and synchronizing with GitHub. Use for linting (Ruff), code stats, secret scanning, and automated GitHub pushes.
+description: 代码质量、结构完整性以及与 GitHub 同步的综合审计工具。用于代码检查 (Ruff)、代码统计、密钥扫描和自动 GitHub 推送。
 metadata:
   {
     "nanobot": {
@@ -11,49 +11,49 @@ metadata:
   }
 ---
 
-# Project Audit Skill
+# 项目审计技能 (Project Audit Skill)
 
-This skill provides a unified workflow for maintaining the high-quality standards of the Nanobot project.
+此技能提供了一个统一的工作流程，用于维护 Nanobot 项目的高质量标准。
 
-## 🛠️ Actions
+## 🛠️ 动作 (Actions)
 
-### 1. Code Linting (Ruff)
-Run a deep check of the Python codebase for errors, style issues, and import sorting.
+### 1. 代码检查 (Ruff)
+深度检查 Python 代码库中的错误、风格问题和导入排序。
 ```bash
 ruff check .
 ```
 
-### 2. Structural Stats
-Monitor the "lightweight" status of the project.
+### 2. 结构统计
+监控项目的“轻量级”状态。
 ```bash
 bash core_agent_lines.sh
 ```
 
-### 3. Secret Scanning (Safety First)
-Search for accidentally exposed tokens or sensitive data pattern before pushing.
+### 3. 密钥扫描 (安全第一)
+在推送之前搜索意外暴露的 Token 或敏感数据模式。
 ```bash
 grep -rE "sk-[a-zA-Z0-9]{48}|ghp_[a-zA-Z0-9]{36}" . --exclude-dir=.venv
 ```
 
-### 4. Automated GitHub Sync
-A one-stop action to commit and push changes.
+### 4. 自动 GitHub 同步
+一站式提交和推送更改。
 ```bash
 git add . && git commit -m "feat/fix: [desc]" && git push origin main
 ```
 
 ---
 
-## 📋 Comprehensive Audit Workflow
+## 📋 综合审计工作流
 
-To perform a full "Premium" check before release or major push:
+在发布或重大推送之前执行完整的“高级”检查：
 
-1. **Lint**: `ruff check .` (Fix any errors first)
-2. **Format Check**: `ruff format --check .`
-3. **Stat Audit**: `bash core_agent_lines.sh` (Ensure we are under 5,000 core lines)
-4. **Secret Scan**: Run the grep command above.
-5. **Sync**: Commit and push only if all above pass.
+1. **Lint**: `ruff check .` (首先修复任何错误)
+2. **格式检查**: `ruff format --check .`
+3. **统计审计**: `bash core_agent_lines.sh` 
+4. **密钥扫描**: 运行上面的 grep 命令。
+5. **同步**: 仅当上述所有检查通过时提交并推送。
 
-## 💡 Best Practices
-- **Never push with lint errors**: It lowers the project's reputation.
-- **Meaningful Commits**: Use conventional commits (feat:, fix:, docs:, chore:).
-- **Check Bilingual Sync**: Ensure `README.md` and `README_EN.md` milestones are identical.
+## 💡 最佳实践
+- **决不要推送带有 Lint 错误的代码**: 这会降低项目的声誉。
+- **有意义的提交**: 使用约定式提交 (feat:, fix:, docs:, chore:)。
+- **检查双语同步**: 确保 `README.md` 和 `README_EN.md` 的里程碑一致。

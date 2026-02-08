@@ -23,4 +23,6 @@ openclaw/
 workspace/memory/
 workspace/sessions/
 .nanobot/
+.home/
+memory/
 *.log

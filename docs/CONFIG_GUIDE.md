@@ -6,6 +6,12 @@ This guide provides instructions on how to configure your Nanobot secretary usin
 
 The easiest and safest way to manage your settings is via the built-in `nanobot config` command, which prevents syntax errors associated with manual JSON editing.
 
+## ✅ Minimum Viable Path (5-minute smoke test)
+1. Set your model and API key.  
+2. Run `nanobot config check` to verify settings.  
+3. Try `nanobot agent -m "Give me 3 things to do today"` to validate a full roundtrip.  
+4. If you want desktop control, set `tools.mac.confirmMode` to `warn` or `require`.  
+
 ### 1. Basic Commands
 - **View current configuration**: `nanobot config list`
 - **Set a parameter**: `nanobot config set agents.defaults.model "gpt-4o"`
@@ -15,6 +21,7 @@ The easiest and safest way to manage your settings is via the built-in `nanobot 
 - **LLM Model**: `agents.defaults.model`
 - **Web Proxy**: `tools.web.proxy` (e.g., "http://127.0.0.1:1082")
 - **Safety Guard**: `brain.safetyGuard` (true/false)
+- **macOS Confirm Mode**: `tools.mac.confirmMode` (off/warn/require)
 
 ---
 
@@ -23,6 +30,9 @@ The easiest and safest way to manage your settings is via the built-in `nanobot 
 Nanobot's "Soul and Memory" are stored in the workspace.
 - **Default Location**: `./workspace` (Repository local folder)
 - **Customization**: To change the primary workspace, run `nanobot config set agents.defaults.workspace "/your/path"`.
+
+**Data directory override**:
+- Use `NANOBOT_HOME` to override the data directory (defaults to local `.nanobot`).
 
 **Workspace Hierarchy**:
 1. `IDENTITY.md`: Core mission and role.
@@ -38,7 +48,7 @@ Nanobot's "Soul and Memory" are stored in the workspace.
 Run `nanobot onboard` for a guided setup. Alternatively, you can directly send API keys to the agent during a session, and it will configure itself automatically.
 
 ### 2. Multi-Channel Access (Gateway)
-Central config: `~/.nanobot/config.json`
+Central config: `config.json` (Located in the local `.nanobot/` folder or the directory defined by `NANOBOT_HOME`)
 - **Telegram**: Configure `token` under `channels.telegram`.
 - **Feishu**: Configure `appId` and `appSecret` under `channels.feishu`.
 
@@ -58,6 +68,9 @@ It automatically checks:
 - Playwright browser drivers
 - macOS Vision permissions
 - Network connectivity
+
+## 🧾 Audit Log
+Key tool execution events are recorded in `audit.log` for tracing and latency analysis.
 
 ---
 <p align="center">

@@ -1,8 +1,9 @@
 import asyncio
 import json
+import time
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
 if TYPE_CHECKING:
     from nanobot.session.manager import Session
 
@@ -38,8 +39,11 @@ from nanobot.agent.models import ModelRegistry
 from nanobot.agent.tools.provider import ProviderTool
 from nanobot.bus.events import InboundMessage, OutboundMessage
 from nanobot.bus.queue import MessageBus
-from nanobot.providers.base import LLMProvider
+from nanobot.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 from nanobot.session.manager import SessionManager
+from nanobot.process import CommandQueue, CommandLane
+from nanobot.agent.context_guard import ContextGuard, TokenCounter
+from nanobot.utils.audit import log_event
 
 
 class AgentLoop:
@@ -67,6 +71,9 @@ class AgentLoop:
         brain_config: "BrainConfig | None" = None,
         providers_config: "ProvidersConfig | None" = None,
         web_proxy: str | None = None,
+        max_tokens: int = 8192,
+        temperature: float = 0.7,
+        mac_confirm_mode: str = "warn",
     ):
         self.bus = bus
         self.provider = provider
@@ -80,15 +87,17 @@ class AgentLoop:
         self.restrict_to_workspace = restrict_to_workspace
         self.brain_config = brain_config or BrainConfig()
         self.web_proxy = web_proxy
+        self.max_tokens = max_tokens
+        self.temperature = temperature
+        self.mac_confirm_mode = mac_confirm_mode
 
-        self.context = ContextBuilder(workspace, model=self.model)
+        self.context = ContextBuilder(workspace, model=self.model, brain_config=self.brain_config)
         self.sessions = SessionManager(workspace)
         self.tools = ToolRegistry()
         
         # Initialize Model Registry
         self.model_registry = ModelRegistry()
-        if providers_config:
-            self._populate_registry(providers_config)
+        self.providers_config = providers_config
         
         self.subagents = SubagentManager(
             provider=provider,
@@ -104,16 +113,8 @@ class AgentLoop:
         self._running = False
         self._register_default_tools()
 
-    def _populate_registry(self, providers: "ProvidersConfig") -> None:
+    async def _populate_registry(self, providers: "ProvidersConfig") -> None:
         """Register configured providers into the registry."""
-        # Check if we have an event loop, if not (e.g. testing), just warn or skip
-        # We use asyncio.create_task to avoid blocking init, 
-        # or just run synchronously if possible (register is async though).
-        # ideally we should await this but __init__ is sync.
-        # We'll schedule it on the loop if running, or just fire and forget.
-        # Actually ModelRegistry.register is async. 
-        # Let's define a helper coroutine.
-        
         async def register_all():
             # OpenRouter
             if providers.openrouter.api_key:
@@ -155,21 +156,18 @@ class AgentLoop:
             # Also add dynamic providers from brain config (already handled by check command but good to have here)
             if self.brain_config.provider_registry:
                 for p in self.brain_config.provider_registry:
-                    if "api_key" in p and "base_url" in p:
+                    # Support both snake_case and camelCase config keys
+                    api_key = p.get("api_key") or p.get("apiKey")
+                    base_url = p.get("base_url") or p.get("baseUrl")
+                    if api_key and base_url:
                         await self.model_registry.register(
-                            base_url=p["base_url"],
-                            api_key=p["api_key"],
-                            name=p.get("name")
+                            base_url=base_url,
+                            api_key=api_key,
+                            name=p["name"],
+                            default_model=p.get("model")
                         )
 
-        # Iterate loop to run
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(register_all())
-        except RuntimeError:
-            # No loop running yet, that's fine, the registry might be empty until loop starts?
-            # Or we accept that for CLI 'run_once' usage it might be racy.
-            pass
+        await register_all()
 
     def _register_default_tools(self) -> None:
         """Register the default set of tools."""
@@ -210,8 +208,8 @@ class AgentLoop:
         self.tools.register(GmailTool())
 
         # Mac tool
-        self.tools.register(MacTool())
-        self.tools.register(MacVisionTool())
+        self.tools.register(MacTool(confirm_mode=self.mac_confirm_mode))
+        self.tools.register(MacVisionTool(confirm_mode=self.mac_confirm_mode))
 
         # GitHub tool
         self.tools.register(GitHubTool())
@@ -238,26 +236,18 @@ class AgentLoop:
         self._running = True
         logger.info("Agent loop started")
 
+        # Ensure registry is populated when loop is running
+        if self.providers_config:
+            await self._populate_registry(self.providers_config)
+
         while self._running:
             try:
                 # Wait for next message
                 msg = await asyncio.wait_for(self.bus.consume_inbound(), timeout=1.0)
 
-                # Process it
-                try:
-                    response = await self._process_message(msg)
-                    if response:
-                        await self.bus.publish_outbound(response)
-                except Exception as e:
-                    logger.error(f"Error processing message: {e}")
-                    # Send error response
-                    await self.bus.publish_outbound(
-                        OutboundMessage(
-                            channel=msg.channel,
-                            chat_id=msg.chat_id,
-                            content=f"Sorry, I encountered an error: {str(e)}",
-                        )
-                    )
+                # Process it asynchronously via CommandQueue (handled in _process_message_wrapper)
+                asyncio.create_task(self._process_message_wrapper(msg))
+
             except asyncio.TimeoutError:
                 continue
 
@@ -266,7 +256,32 @@ class AgentLoop:
         self._running = False
         logger.info("Agent loop stopping")
 
-    async def _process_message(self, msg: InboundMessage) -> OutboundMessage | None:
+    async def _process_message_wrapper(self, msg: InboundMessage) -> None:
+        """
+        Wrapper to process message via CommandQueue and handle response publishing/errors.
+        """
+        async def task():
+            try:
+                response = await self._inner_process_message(msg)
+                if response:
+                    await self.bus.publish_outbound(response)
+            except Exception as e:
+                logger.error(f"Error processing message in queue: {e}")
+                await self.bus.publish_outbound(
+                    OutboundMessage(
+                        channel=msg.channel,
+                        chat_id=msg.chat_id,
+                        content=f"Sorry, I encountered an error: {str(e)}",
+                    )
+                )
+
+        # Determine lane based on message type/content if needed
+        # For now, everything goes to MAIN to preserve serial ordering per conversation
+        lane = CommandLane.MAIN
+        
+        await CommandQueue.enqueue(lane, task)
+
+    async def _inner_process_message(self, msg: InboundMessage) -> OutboundMessage | None:
         """
         Process a single inbound message.
 
@@ -284,7 +299,10 @@ class AgentLoop:
                 result.content = self._filter_reasoning(result.content)
             return result
 
-        logger.info(f"Processing message from {msg.channel}:{msg.sender_id}")
+        if msg.trace_id:
+            logger.info(f"[TraceID: {msg.trace_id}] Processing message from {msg.channel}:{msg.sender_id}")
+        else:
+            logger.info(f"Processing message from {msg.channel}:{msg.sender_id}")
 
         # Get or create session
         session = self.sessions.get_or_create(msg.session_key)
@@ -299,7 +317,7 @@ class AgentLoop:
 
         spawn_tool = self.tools.get("spawn")
         if isinstance(spawn_tool, SpawnTool):
-            spawn_tool.set_context(msg.channel, msg.chat_id)
+            spawn_tool.set_context(msg.channel, msg.chat_id, trace_id=msg.trace_id)
 
         cron_tool = self.tools.get("cron")
         if isinstance(cron_tool, CronTool):
@@ -320,14 +338,23 @@ class AgentLoop:
 
         while iteration < self.max_iterations:
             iteration += 1
+            logger.debug(f"[TraceID: {msg.trace_id}] Starting iteration {iteration}")
 
-            # Call LLM
-            response = await self.provider.chat(
-                messages=messages, tools=self.tools.get_definitions(), model=self.model
+            # Call LLM with failover support
+            response = await self._chat_with_failover(
+                messages=messages,
+                tools=self.tools.get_definitions()
             )
 
-            # Handle tool calls
-            if response.has_tool_calls:
+            logger.debug(f"[TraceID: {msg.trace_id}] LLM responded. has_tool_calls: {response.has_tool_calls}, content length: {len(response.content) if response.content else 0}")
+
+            # Handle tool calls (formal or embedded in text)
+            tool_calls = response.tool_calls
+            if not tool_calls and response.content:
+                # Fallback: try to parse tool calls from text content
+                tool_calls = self._parse_tool_calls_from_text(response.content)
+
+            if tool_calls:
                 # Add assistant message with tool calls
                 tool_call_dicts = [
                     {
@@ -338,24 +365,33 @@ class AgentLoop:
                             "arguments": json.dumps(tc.arguments),  # Must be JSON string
                         },
                     }
-                    for tc in response.tool_calls
+                    for tc in tool_calls
                 ]
                 messages = self.context.add_assistant_message(
-                    messages, response.content, tool_call_dicts
+                    messages, response.content if not response.has_tool_calls else response.content, tool_call_dicts
                 )
 
                 # Execute tools in parallel
                 tool_coros = []
-                for tool_call in response.tool_calls:
+                tool_starts: dict[str, float] = {}
+                for tool_call in tool_calls:
                     args_str = json.dumps(tool_call.arguments)
-                    logger.debug(f"Executing tool: {tool_call.name} with arguments: {args_str}")
+                    logger.debug(f"[TraceID: {msg.trace_id}] Executing tool: {tool_call.name} with arguments: {args_str}")
+                    tool_starts[tool_call.id] = time.perf_counter()
+                    log_event({
+                        "type": "tool_start",
+                        "trace_id": msg.trace_id,
+                        "tool": tool_call.name,
+                        "tool_call_id": tool_call.id,
+                        "args_keys": list(tool_call.arguments.keys()),
+                    })
                     tool_coros.append(self.tools.execute(tool_call.name, tool_call.arguments))
 
                 # Wait for all tools to complete
                 results = await asyncio.gather(*tool_coros, return_exceptions=True)
 
                 # Add results to messages
-                for tool_call, result in zip(response.tool_calls, results):
+                for tool_call, result in zip(tool_calls, results):
                     # Handle exceptions from individual tools
                     if isinstance(result, Exception):
                         result_str = f"Error executing tool {tool_call.name}: {str(result)}"
@@ -364,9 +400,22 @@ class AgentLoop:
                     
                     # Log first 200 chars safely
                     log_content = ""
-                    if result_str:
-                        log_content = result_str[:200]
+                    if result_str and isinstance(result_str, str):
+                        log_content = str(result_str)[:200]
                     logger.debug(f"Tool {tool_call.name} result: {log_content}...")
+                    duration_s = None
+                    if tool_call.id in tool_starts:
+                        val = time.perf_counter() - tool_starts[tool_call.id]
+                        duration_s = round(float(val), 4)
+                    log_event({
+                        "type": "tool_end",
+                        "trace_id": msg.trace_id,
+                        "tool": tool_call.name,
+                        "tool_call_id": tool_call.id,
+                        "status": "error" if isinstance(result, Exception) else "ok",
+                        "duration_s": duration_s,
+                        "result_len": len(result_str),
+                    })
                         
                     messages = self.context.add_tool_result(
                         messages, tool_call.id, tool_call.name, result_str
@@ -387,7 +436,111 @@ class AgentLoop:
         # Filter reasoning before sending to user
         final_content = self._filter_reasoning(str(final_content))
 
-        return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id, content=final_content)
+        return OutboundMessage(
+            channel=msg.channel, 
+            chat_id=msg.chat_id, 
+            content=final_content,
+            trace_id=msg.trace_id
+        )
+
+    async def _chat_with_failover(
+        self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None
+    ) -> "LLMResponse":
+        """
+        Call LLM with automatic failover to other registered providers.
+        """
+        from nanobot.providers.factory import ProviderFactory
+
+        # List of candidate providers: Primary first, then registry fallbacks
+        candidates = []
+        
+        # 1. Primary provider
+        candidates.append({
+            "name": "primary",
+            "provider": self.provider,
+            "model": self.model
+        })
+        
+        # 2. Registry providers (excluding primary if duplicated)
+        # 2. Registry providers (excluding primary if duplicated)
+        if self.model_registry:
+            # Use get_active_providers to filter out cooled-down providers
+            active_infos = self.model_registry.get_active_providers(model=self.model)
+            
+            for p_info in active_infos:
+                # Avoid re-adding primary if already there (heuristic check)
+                if p_info.base_url == self.provider.api_base and p_info.default_model == self.model:
+                    # Also check if primary matches this provider to verify cooldown?
+                    # For now just skip to avoid duplication
+                    continue
+                
+                # Create a temporary provider for fallback
+                try:
+                    fallback_provider = ProviderFactory.get_provider(
+                        model=p_info.default_model or (p_info.models[0] if p_info.models else self.model),
+                        api_key=p_info.api_key,
+                        api_base=p_info.base_url
+                    )
+                    candidates.append({
+                        "name": p_info.name,
+                        "provider": fallback_provider,
+                        "model": fallback_provider.default_model
+                    })
+                except Exception as e:
+                    logger.warning(f"Failed to create fallback provider {p_info.name}: {e}")
+
+        last_error = None
+        for i, candidate in enumerate(candidates):
+            try:
+                if i > 0:
+                    await self._send_pulse_message(
+                        f"🐈 主模型响应异常，正在尝试备用大脑 ({candidate['name']})，请稍等... 🐾"
+                    )
+
+                response = await candidate["provider"].chat(
+                    messages=messages,
+                    tools=tools,
+                    model=candidate.get("model", self.model),
+                    max_tokens=self.max_tokens,
+                    temperature=self.temperature,
+                    timeout=25.0, # Fail fast (25s) to allow rotation
+                )
+                
+                if response.finish_reason == "error":
+                    raise Exception(response.content)
+                
+                return response
+                
+            except Exception as e:
+                last_error = e
+                logger.warning(f"Provider {candidate['name']} failed: {e}")
+                
+                # Report failure to registry to trigger cooldown
+                if self.model_registry:
+                    self.model_registry.report_failure(candidate["name"])
+                    
+                continue
+
+        # If all candidates fail
+        error_msg = f"抱歉老板，所有可用的大脑（共 {len(candidates)} 个）都暂时无法响应。最后一次错误：{last_error}"
+        from nanobot.providers.base import LLMResponse
+        return LLMResponse(content=error_msg, finish_reason="error")
+
+    async def _send_pulse_message(self, content: str) -> None:
+        """Send a proactive 'pulse' message to the user to show progress."""
+        # Use MessageTool context if available
+        message_tool = self.tools.get("message")
+        if (message_tool and 
+            hasattr(message_tool, "current_channel") and 
+            message_tool.current_channel and 
+            message_tool.current_chat_id):
+            
+            from nanobot.bus.events import OutboundMessage
+            await self.bus.publish_outbound(OutboundMessage(
+                channel=message_tool.current_channel,
+                chat_id=message_tool.current_chat_id,
+                content=content
+            ))
 
     async def _process_system_message(self, msg: InboundMessage) -> OutboundMessage | None:
         """
@@ -398,8 +551,12 @@ class AgentLoop:
         """
         logger.info(f"Processing system message from {msg.sender_id}")
 
-        # Parse origin from chat_id (format: "channel:chat_id")
-        if ":" in msg.chat_id:
+        # Parse origin from metadata (preferred) or chat_id
+        if msg.metadata and "origin" in msg.metadata:
+            origin = msg.metadata["origin"]
+            origin_channel = origin.get("channel", "cli")
+            origin_chat_id = origin.get("chat_id", "direct")
+        elif ":" in msg.chat_id:
             parts = msg.chat_id.split(":", 1)
             origin_channel = parts[0]
             origin_chat_id = parts[1]
@@ -501,8 +658,12 @@ class AgentLoop:
         """
         msg = InboundMessage(channel=channel, sender_id="user", chat_id=chat_id, content=content)
 
-        response = await self._process_message(msg)
-        return response.content if response else ""
+        # For direct access, we wait for result but still use queue for safety
+        async def task():
+            response = await self._inner_process_message(msg)
+            return response.content if response else ""
+
+        return await CommandQueue.enqueue(CommandLane.MAIN, task)
 
     async def _summarize_history(self, session: "Session") -> None:
         """
@@ -514,12 +675,24 @@ class AgentLoop:
         if not self.brain_config.auto_summarize:
             return
 
-        # Check threshold (default 40)
-        threshold = self.brain_config.summary_threshold
-        if len(session.messages) < threshold:
+        # Use ContextGuard to check token usage
+        # We estimate usage purely based on history for now, assuming system prompt takes ~2k tokens
+        # Real limit check happens during build_messages, but here we proactively compact.
+        guard = ContextGuard(model=self.model)
+        
+        # We use a lower threshold for proactive summarization (e.g. 60% of limit)
+        # to ensure we always have room for system prompt + response.
+        safe_limit = guard.limit * 0.6 
+        
+        current_usage = TokenCounter.count_messages(session.messages)
+        
+        # Also respect the message count threshold as a secondary check
+        count_threshold = self.brain_config.summary_threshold
+        
+        if current_usage < safe_limit and len(session.messages) < count_threshold:
             return
 
-        logger.info(f"Auto-summarizing session {session.key} (messages: {len(session.messages)})")
+        logger.info(f"Auto-summarizing session {session.key} (tokens: {current_usage}/{int(safe_limit)}, msgs: {len(session.messages)})")
 
         # Keep the last 10 messages, summarize the rest
         keep_count = 10
@@ -572,6 +745,80 @@ Conversation History:
         except Exception as e:
             logger.error(f"Failed to auto-summarize session: {e}")
 
+    def _parse_tool_calls_from_text(self, text: str) -> List[ToolCallRequest]:
+        """
+        Attempt to parse tool calls from raw text if the model didn't use the formal API.
+        Supports both single JSON object and list of JSON objects.
+        """
+        if not text:
+            return []
+
+        import re
+        import uuid
+
+        # Look for JSON-like patterns: { ... } or [ { ... }, ... ]
+        # We try to find the largest block that looks like a tool call
+        results: List[ToolCallRequest] = []
+        
+        # Pattern 1: Look for JSON blocks in markdown code blocks
+        blocks = re.findall(r"```(?:json)?\s*([\s\S]*?)```", text)
+        
+        # Pattern 2: If no code blocks, treat the entire text as a potential JSON block if it starts with {
+        if not blocks:
+            text_strip = text.strip()
+            if text_strip.startswith("{") or text_strip.startswith("["):
+                blocks = [text_strip]
+
+        # Pattern 3: Look for any { ... } blocks
+        if not blocks:
+            matches = re.finditer(r"(\{[\s\S]*?\})", text)
+            blocks = [m.group(0) for m in matches]
+
+        logger.debug(f"Attempting to parse tool calls from {len(blocks)} potential blocks")
+
+        for block in blocks:
+            block = block.strip()
+            if not block:
+                continue
+
+            # Try to parse multiple JSON objects if they are concatenated or separated by whitespace
+            decoder = json.JSONDecoder()
+            pos = 0
+            while pos < len(block):
+                try:
+                    # Skip non-JSON leading characters
+                    while pos < len(block) and block[pos] not in '{[':
+                        pos += 1
+                    if pos >= len(block):
+                        break
+
+                    data, next_pos = decoder.raw_decode(block[pos:])
+                    pos += next_pos
+                    
+                    # Process the parsed data
+                    if isinstance(data, list):
+                        for item in data:
+                            if isinstance(item, dict) and "name" in item:
+                                results.append(ToolCallRequest(
+                                    id=f"call_{uuid.uuid4().hex[:8]}",
+                                    name=item["name"],
+                                    arguments=item.get("arguments", {})
+                                ))
+                    elif isinstance(data, dict) and "name" in data:
+                        results.append(ToolCallRequest(
+                            id=f"call_{uuid.uuid4().hex[:8]}",
+                            name=data["name"],
+                            arguments=data.get("arguments", {})
+                        ))
+                except (json.JSONDecodeError, ValueError) as e:
+                    logger.debug(f"Failed to parse JSON segment starting at {pos}: {e}")
+                    # Move past current failing char to try again
+                    pos += 1
+
+        if results:
+            logger.info(f"Successfully parsed {len(results)} tool calls from text content")
+        return results
+
     def _filter_reasoning(self, content: str) -> str:
         """
         Remove internal reasoning within <think> tags.
@@ -592,4 +839,3 @@ Conversation History:
         content = re.sub(r"<think>.*$", "", content, flags=re.DOTALL)
         
         return content.strip()
-

@@ -1,5 +1,6 @@
 """Utility functions for nanobot."""
 
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -33,16 +34,51 @@ def safe_resolve_path(path: str | Path, allowed_dir: Path | None = None) -> Path
 
 
 def get_data_path() -> Path:
-    """Get the nanobot data directory (~/.nanobot)."""
-    return ensure_dir(Path.home() / ".nanobot")
+    """
+    Get the nanobot data directory.
+    Priority:
+    1. NANOBOT_HOME environment variable
+    2. Local ./.nanobot directory (if exists)
+    3. Home ~/.nanobot directory (if exists)
+    4. Default to local ./.nanobot
+    """
+    root = os.getenv("NANOBOT_HOME")
+    if root:
+        return ensure_dir(Path(root).expanduser())
+    
+    # Check local
+    local_path = Path(".") / ".nanobot"
+    if local_path.exists() and local_path.is_dir():
+        return local_path.resolve()
+        
+    # Check home
+    home_path = Path("~/.nanobot").expanduser()
+    if home_path.exists() and home_path.is_dir():
+        return home_path.resolve()
+        
+    return ensure_dir(local_path)
+
+
+def get_log_path() -> Path:
+    """Get the path to the gateway log file."""
+    # Try local first, then data dir
+    local_log = Path("gateway.log")
+    if local_log.exists():
+        return local_log.resolve()
+    return get_data_path() / "gateway.log"
+
+
+def get_audit_path() -> Path:
+    """Get the path to the audit log file."""
+    return get_data_path() / "audit.log"
 
 
 def get_workspace_path(workspace: str | None = None) -> Path:
     """
-    Get the workspace path.
+    Get the workspace path. Prioritizes local 'workspace' if it exists.
 
     Args:
-        workspace: Optional workspace path. Defaults to ~/.nanobot/workspace.
+        workspace: Optional workspace path. Defaults to [data_dir]/workspace.
 
     Returns:
         Expanded and ensured workspace path.
@@ -50,7 +86,11 @@ def get_workspace_path(workspace: str | None = None) -> Path:
     if workspace:
         path = Path(workspace).expanduser()
     else:
-        path = Path.home() / ".nanobot" / "workspace"
+        # Prioritize local workspace directory in current folder
+        local_ws = Path("workspace")
+        if local_ws.exists() and local_ws.is_dir():
+            return local_ws.resolve()
+        path = get_data_path() / "workspace"
     return ensure_dir(path)
 
 
@@ -83,9 +123,9 @@ def timestamp() -> str:
 
 def truncate_string(s: str, max_len: int = 100, suffix: str = "...") -> str:
     """Truncate a string to max length, adding suffix if truncated."""
-    if len(s) <= max_len:
-        return s
-    return s[: max_len - len(suffix)] + suffix
+    if isinstance(s, str) and len(s) > max_len:
+        return s[: max_len - len(suffix)] + suffix
+    return s
 
 
 def safe_filename(name: str) -> str:

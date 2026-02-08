@@ -7,7 +7,7 @@ from typing import Any
 from nanobot.agent.tools.base import Tool
 from nanobot.utils.helpers import safe_resolve_path, ensure_dir
 
-CONFIG_PATH = os.path.expanduser("~/.nanobot/knowledge_config.json")
+from nanobot.config.loader import get_data_dir
 
 
 class KnowledgeTool(Tool):
@@ -23,7 +23,7 @@ class KnowledgeTool(Tool):
     - Create: Create new notes.
 
     Setup:
-    Requires '~/.nanobot/knowledge_config.json' with:
+    Requires 'knowledge_config.json' in your nanobot home with:
     { "vault_path": "/path/to/vault", "daily_notes_folder": "Daily" }
     """
     parameters = {
@@ -64,10 +64,11 @@ class KnowledgeTool(Tool):
     }
 
     def _load_config(self):
-        if not os.path.exists(CONFIG_PATH):
+        config_path = get_data_dir() / "knowledge_config.json"
+        if not config_path.exists():
             return None
         try:
-            with open(CONFIG_PATH, "r") as f:
+            with open(config_path, "r") as f:
                 return json.load(f)
         except Exception:
             return None

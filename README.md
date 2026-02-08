@@ -2,7 +2,6 @@
   <p align="right">
     <a href="README_EN.md">English</a> | <strong>简体中文</strong>
   </p>
-  <img src="nanobot_logo.png" alt="nanobot" width="500">
   <h1>nanobot: 极轻量级桌面 AI 秘书 (进阶增加版) 🐈</h1>
   <p>
     <strong>由 [HKUDS/nanobot] 深度进化而来的操作系统级助手</strong>
@@ -41,7 +40,8 @@
 
 不再需要手动编辑 JSON 或猜测环境问题：
 - `nanobot config`: CLI 级配置管理（查看、修改、校验）。
-- `nanobot doctor`: 系统健康诊断，一键排查环境冲突。
+- `nanobot doctor`: 系统健康诊断，一键排查环境冲突、API 连通性。
+- `nanobot logs`: 实时追踪 `gateway.log` 和 `audit.log`，调试无忧。
 - `nanobot new`: 快速脚手架（如 `nanobot new skill`）助力新能力开发。
 
 ## 🔥 高级核心优化
@@ -49,6 +49,24 @@
 - ⚡ **并行工具执行**: 支持同时调用多个工具，复杂任务处理速度提升 50%。
 - 🌍 **全球化代理支持**: 完美支持浏览器和消息渠道的代理配置，解决搜索超时问题。
 - 🧠 **Light RAG 记忆与无限对话**: 检索式记忆加载，彻底解决 Context Window 爆炸问题。
+
+## 🛡️ 第四阶段：企业级可靠性 (Enterprise Reliability)
+
+参考 OpenClaw 架构，我们引入了三道安全防线：
+
+1.  **高级消息泳道 (Lanes)**:
+    - 确保用户交互 (MAIN Lane) 永远优先于后台任务 (BACKGROUND Lane)，拒绝卡顿。
+2.  **上下文智能卫士 (Context Guard)**:
+    - 实时监控 Token 用量 (支持 GPT-4o/Claude 3)，在达到阈值 (85%) 时自动无损压缩，杜绝 "Context Exceeded" 崩溃。
+3.  **多鉴权轮询 (Auth Rotation)**:
+    - 遇到 API 429/5xx 错误时，自动将故障 Key 列入 "冷却名单" 并无缝切换备用线路，保障服务 100% 在线。
+64: 
+65: ## 🖥️ 桌面自动化革命 (Desktop Automation)
+66: 
+67: Nanobot 现已突破 API 限制，具备**真实的桌面应用控制权**：
+68: - **智能分发 (Smart Dispatch)**: 自动判断联系人所在的平台 (WeChat / Telegram) 并精准路由消息。
+69: - **纯键盘流 (Pure Keyboard Flow)**: 甚至不需要鼠标坐标，利用系统级快捷键 (`Cmd+F/K` -> `Paste` -> `Enter`) 实现 100% 稳定的消息发送，彻底解决输入法干扰。
+70: - **动态通讯录**: 支持通过自然语言 (`Add contact...`) 实时管理联系人映射，无需修改代码。
 
 ## 📦 快速安装
 
@@ -79,6 +97,7 @@ workspace/
 
 - ⚙️ **[高级配置指南](docs/CONFIG_GUIDE_CN.md)**
 - 🗺️ **[版本演进路线图](docs/ROADMAP_CN.md)**
+- 🧪 **[全项目测试 SOP](测试过程.md)**
 - 🏗️ **[项目分层结构说明](docs/PROJECT_STRUCTURE.md)**
 
 ---

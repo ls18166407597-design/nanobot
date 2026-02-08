@@ -120,11 +120,19 @@ class ExecToolConfig(BaseModel):
     timeout: int = 60
 
 
+class MacToolsConfig(BaseModel):
+    """macOS tools configuration."""
+
+    # off: no prompt, warn: allow but warn when confirm missing, require: block without confirm
+    confirm_mode: str = "warn"
+
+
 class ToolsConfig(BaseModel):
     """Tools configuration."""
 
     web: WebToolsConfig = Field(default_factory=WebToolsConfig)
     exec: ExecToolConfig = Field(default_factory=ExecToolConfig)
+    mac: MacToolsConfig = Field(default_factory=MacToolsConfig)
     restrict_to_workspace: bool = False  # If true, restrict all tool access to workspace directory
 
 
@@ -134,6 +142,7 @@ class BrainConfig(BaseModel):
     auto_summarize: bool = True
     light_rag: bool = True
     safety_guard: bool = True
+    reasoning: bool = True  # Toggle for reasoning instructions (<think> format)
     
     # Advanced settings
     memory_chunk_size: int = 500

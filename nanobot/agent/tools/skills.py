@@ -170,12 +170,13 @@ class SkillsTool(Tool):
 
     def _list_installed(self) -> str:
         skills = self.loader.list_skills(filter_unavailable=False)
-        installed = [s for s in skills if s["source"] == "workspace"]
+        installed = [s for s in skills if s["source"] in ["workspace", "builtin"]]
         if not installed:
-            return "No custom skills installed in workspace."
+            return "No skills found in workspace or built-in directories."
 
-        output = ["--- Installed Workspace Skills ---"]
+        output = ["--- Installed Skills ---"]
         for s in installed:
             desc = self.loader._get_skill_description(s["name"])
-            output.append(f"- {s['name']}: {desc}")
+            source = f"({s['source']})"
+            output.append(f"- {s['name']}: {desc} {source}")
         return "\n".join(output)

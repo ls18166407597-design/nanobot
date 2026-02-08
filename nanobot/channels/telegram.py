@@ -11,6 +11,7 @@ from nanobot.bus.events import OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
 from nanobot.config.schema import TelegramConfig
+from nanobot.utils.helpers import get_data_path
 
 
 def _markdown_to_telegram_html(text: str) -> str:
@@ -138,7 +139,7 @@ class TelegramChannel(BaseChannel):
         # Start polling (this runs until stopped)
         await self._app.updater.start_polling(
             allowed_updates=["message"],
-            drop_pending_updates=True,  # Ignore old messages on startup
+            drop_pending_updates=False,  # Process pending messages
         )
 
         # Keep running until stopped
@@ -163,11 +164,13 @@ class TelegramChannel(BaseChannel):
             return
 
         try:
+            logger.debug(f"Telegram sending to {msg.chat_id}: {msg.content[:50]}...")
             # chat_id should be the Telegram chat ID (integer)
             chat_id = int(msg.chat_id)
             # Convert markdown to Telegram HTML
             html_content = _markdown_to_telegram_html(msg.content)
             await self._app.bot.send_message(chat_id=chat_id, text=html_content, parse_mode="HTML")
+            logger.info(f"Telegram sent message to {chat_id}")
         except ValueError:
             logger.error(f"Invalid chat_id: {msg.chat_id}")
         except Exception as e:
@@ -241,7 +244,7 @@ class TelegramChannel(BaseChannel):
                 # Save to workspace/media/
                 from pathlib import Path
 
-                media_dir = Path.home() / ".nanobot" / "media"
+                media_dir = get_data_path() / "media"
                 media_dir.mkdir(parents=True, exist_ok=True)
 
                 file_path = media_dir / f"{media_file.file_id[:16]}{ext}"

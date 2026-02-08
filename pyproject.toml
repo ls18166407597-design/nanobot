@@ -18,6 +18,7 @@ classifiers = [
 
 dependencies = [
     "typer>=0.9.0",
+    "openai>=1.0.0",
     "litellm>=1.0.0",
     "pydantic>=2.0.0",
     "pydantic-settings>=2.0.0",
@@ -35,6 +36,8 @@ dependencies = [
     "google-auth>=2.0.0",
     "PyGithub>=2.0.0",
     "playwright>=1.40.0",
+    "pyobjc-framework-Vision>=12.1; sys_platform == 'darwin'",
+    "pyobjc-framework-Quartz>=12.1; sys_platform == 'darwin'",
 ]
 
 [project.optional-dependencies]

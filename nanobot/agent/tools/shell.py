@@ -74,10 +74,14 @@ class ExecTool(Tool):
             return guard_error
 
         # LLM guard second (if enabled)
+        llm_warning: str | None = None
         if self.provider and self.brain_config and self.brain_config.safety_guard:
             llm_error = await self._llm_guard(command)
             if llm_error:
-                return llm_error
+                if llm_error.startswith("WARN:"):
+                    llm_warning = llm_error
+                else:
+                    return llm_error
 
         try:
             process = await asyncio.create_subprocess_shell(
@@ -107,6 +111,8 @@ class ExecTool(Tool):
                 output_parts.append(f"\nExit code: {process.returncode}")
 
             result = "\n".join(output_parts) if output_parts else "(no output)"
+            if llm_warning:
+                result = f"{llm_warning}\n{result}"
 
             # Truncate very long output
             max_len = 10000
@@ -164,7 +170,5 @@ If DANGEROUS, provide a short reason.
                 return f"Error: Command blocked by LLM safety guard. Reason: {content}"
             return None
         except Exception as e:
-            # Fail safe or fail open?
-            # Let's fail open but log warning, or fail safe?
-            # Fail safe is safer.
-            return f"Error: LLM safety check failed: {e}"
+            # Degrade to static guard only; surface warning to user.
+            return f"WARN: LLM safety check failed; falling back to static guard. Reason: {e}"

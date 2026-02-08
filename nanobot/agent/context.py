@@ -24,9 +24,10 @@ class ContextBuilder:
 
     BOOTSTRAP_FILES = ["AGENTS.md", "SOUL.md", "USER.md", "TOOLS.md", "IDENTITY.md"]
 
-    def __init__(self, workspace: Path, model: str | None = None):
+    def __init__(self, workspace: Path, model: str | None = None, brain_config: Any | None = None):
         self.workspace = workspace
         self.model = model
+        self.brain_config = brain_config
         self.memory = MemoryStore(workspace)
         self.skills = SkillsLoader(workspace)
     def build_system_prompt(
@@ -77,12 +78,29 @@ class ContextBuilder:
         if skills_summary:
             parts.append(f"""# 可用技能 (Skills)
 
-以下技能扩展了你的能力。要使用某项技能，请使用 `read_file` 工具读取其对应的 `SKILL.md` 文件。
-显示 available="false" 的技能需要先安装依赖项（你可以尝试使用 apt/brew 安装）。
+如果你需要使用以下技能，请先使用 `read_file` 读取对应的 `SKILL.md` 文件了解具体用法。
 
 {skills_summary}""")
 
         return "\n\n---\n\n".join(parts)
+
+    def _get_reasoning_prompt(self) -> str:
+        """Get the reasoning format section if enabled."""
+        if self.brain_config and not getattr(self.brain_config, "reasoning", True):
+            return ""
+
+        return """
+### Reasoning Format
+You are encouraged to use internal reasoning to plan complex tasks or analyze problems.
+ALL internal reasoning MUST be inside <think>...</think> tags.
+Format:
+<think>
+[Strategic thinking about the Boss's request, plan, and safeguards...]
+</think>
+[Your partner-like response or tool calls]
+
+Only the "visible" response (outside <think> tags) is delivered to the Boss.
+"""
 
     def _get_identity(self) -> str:
         """Get the core identity section."""
@@ -93,21 +111,24 @@ class ContextBuilder:
         system = platform.system()
         runtime = f"{'macOS' if system == 'Darwin' else system} {platform.machine()}, Python {platform.python_version()}"
 
+        from nanobot.config.loader import get_data_dir
+        data_dir = get_data_dir()
+
         # Service status check
         gmail_status = (
             " [Configured]"
-            if Path("~/.nanobot/gmail_config.json").expanduser().exists()
+            if (data_dir / "gmail_config.json").exists()
             else " [Needs Setup]"
         )
         github_status = (
             " [Configured]"
-            if Path("~/.nanobot/github_config.json").expanduser().exists()
+            if (data_dir / "github_config.json").exists()
             or os.environ.get("GITHUB_TOKEN")
             else " [Needs Setup]"
         )
 
         # Knowledge base status
-        kb_config_path = Path("~/.nanobot/knowledge_config.json").expanduser()
+        kb_config_path = data_dir / "knowledge_config.json"
         kb_status = " [Needs Setup]"
         if kb_config_path.exists():
             try:
@@ -121,8 +142,9 @@ class ContextBuilder:
             except Exception:
                 kb_status = " [Needs Setup]"
 
+        web_config_path = data_dir / "web_config.json"
         has_brave_key = (
-            Path("~/.nanobot/web_config.json").expanduser().exists()
+            web_config_path.exists()
             or os.environ.get("BRAVE_API_KEY")
         )
         
@@ -130,10 +152,12 @@ class ContextBuilder:
         if has_brave_key:
             web_line += " You also have `web_search` (Brave API) available."
 
+        reasoning_prompt = self._get_reasoning_prompt()
+
         return f"""# nanobot 🐈 (秘书进阶版)
 
 你是 Nanobot，老板最忠诚的数字影子和贴身秘书。
-你在这里协助老板构建未来，通过每一行优雅的代码和每一个优化的流程来提升效率。
+你是在这里协助老板构建未来，通过每一行优雅的代码和每一个优化的流程来提升效率。
 
 ## 安全与道德
 - 你是忠诚的助手：老板的目标就是你的目标。
@@ -161,18 +185,7 @@ class ContextBuilder:
 
 ## Tooling & Reasoning
 You have access to a set of powerful tools.
-
-### Reasoning Format
-You are encouraged to use internal reasoning to plan complex tasks or analyze problems.
-ALL internal reasoning MUST be inside <think>...</think> tags.
-Format:
-<think>
-[Strategic thinking about the Boss's request, plan, and safeguards...]
-</think>
-[Your partner-like response or tool calls]
-
-Only the "visible" response (outside <think> tags) is delivered to the Boss.
-
+{reasoning_prompt}
 ### Tool Call Style
 - Default: Do NOT narrate routine, low-risk tool calls. Just call the tool.
 - Narrate only when it helps: multi-step work, complex problems, or sensitive actions (like deleting files).

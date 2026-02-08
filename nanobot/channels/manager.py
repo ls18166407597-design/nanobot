@@ -120,15 +120,22 @@ class ChannelManager:
         while True:
             try:
                 msg = await asyncio.wait_for(self.bus.consume_outbound(), timeout=1.0)
+                logger.debug(f"[TraceID: {msg.trace_id}] Dispatcher dequeued message for channel: {msg.channel}")
 
                 channel = self.channels.get(msg.channel)
                 if channel:
                     try:
+                        logger.debug(f"[TraceID: {msg.trace_id}] Dispatcher sending to channel object {channel.name}")
                         await channel.send(msg)
                     except Exception as e:
-                        logger.error(f"Error sending to {msg.channel}: {e}")
+                        # Dead Letter Logging
+                        logger.critical(
+                            f"[TraceID: {msg.trace_id}] FAILED TO SEND MESSAGE to {msg.channel}: {e}\n"
+                            f"CONTENT: {msg.content}\n"
+                            f"METADATA: {msg.metadata}"
+                        )
                 else:
-                    logger.warning(f"Unknown channel: {msg.channel}")
+                    logger.warning(f"[TraceID: {msg.trace_id}] Unknown channel: {msg.channel}. Dropping message.")
 
             except asyncio.TimeoutError:
                 continue

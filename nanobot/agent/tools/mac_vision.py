@@ -37,6 +37,10 @@ class MacVisionTool(Tool):
                 "enum": ["recognize_text", "capture_screen", "look_at_screen"],
                 "description": "要执行的操作。",
             },
+            "confirm": {
+                "type": "boolean",
+                "description": "确认执行截图相关操作。",
+            },
             "image_path": {
                 "type": "string",
                 "description": "图片文件的绝对路径 (recognize_text 时必填)。",
@@ -49,6 +53,10 @@ class MacVisionTool(Tool):
         "required": ["action"],
     }
 
+    def __init__(self, confirm_mode: str = "warn") -> None:
+        self.confirm_mode = confirm_mode
+        self._confirm_actions = {"capture_screen", "look_at_screen"}
+
     async def execute(self, action: str, **kwargs: Any) -> str:
         if platform.system() != "Darwin":
             return "Error: This tool only works on macOS."
@@ -57,46 +65,63 @@ class MacVisionTool(Tool):
             return "Error: 'pyobjc-framework-Vision' and 'pyobjc-framework-Quartz' are required."
 
         try:
+            confirm = bool(kwargs.get("confirm"))
+            warning: str | None = None
+            if action in self._confirm_actions and not confirm:
+                if self.confirm_mode == "require":
+                    return "Confirmation required: re-run with confirm=true."
+                if self.confirm_mode == "warn":
+                    warning = "Warning: action executed without confirm=true."
+
             app_name: str | None = kwargs.get("app_name")
             if action == "recognize_text":
                 image_path = kwargs.get("image_path")
                 if not image_path:
-                    return "Error: 'image_path' (绝对路径) 是 recognize_text 操作所必需의。"
-                return self._recognize_text(image_path)
+                    return "Error: 'image_path' (绝对路径) 是 recognize_text 操作所必需的。"
+                result = self._recognize_text(image_path)
             elif action == "capture_screen":
-                return self._capture_screen(app_name)
+                result = self._capture_screen(app_name)
             elif action == "look_at_screen":
                 path = self._capture_screen(app_name)
                 if path.startswith("Error"):
-                    return path
-                return self._recognize_text(path)
+                    result = path
+                else:
+                    result = self._recognize_text(path)
             else:
-                return f"Unknown action: {action}"
+                result = f"Unknown action: {action}"
+
+            if warning:
+                return f"{warning}\n{result}"
+            return result
         except Exception as e:
             return f"Mac Vision Error: {str(e)}"
 
     def _get_window_id(self, app_name: str) -> str | None:
-        """Use AppleScript to get the window ID of the given app."""
-        import subprocess
-        script = f'''
-        tell application "System Events"
-            if exists (process "{app_name}") then
-                tell process "{app_name}"
-                    if exists window 1 then
-                        return id of window 1
-                    end if
-                end tell
-            end if
-        end tell
-        '''
-        try:
-            result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
-            if result.returncode == 0:
-                w_id = result.stdout.strip()
-                return w_id if w_id else None
+        """Use Quartz to get the window ID of the given app bypass permissions."""
+        options = Quartz.kCGWindowListOptionOnScreenOnly | Quartz.kCGWindowListExcludeDesktopElements
+        window_list = Quartz.CGWindowListCopyWindowInfo(options, Quartz.kCGNullWindowID)
+        
+        if not window_list:
             return None
-        except:
-            return None
+
+        # Try exact match first, then fuzzy
+        app_name_lower = app_name.lower()
+        
+        # 1. Look for matching owner name
+        for window in window_list:
+            owner = str(window.get(Quartz.kCGWindowOwnerName, "")).lower()
+            if app_name_lower in owner or owner in app_name_lower:
+                return str(window.get(Quartz.kCGWindowNumber))
+        
+        # 2. Fallback: If it's "Electron" or "Antigravity", they are often the same
+        if "electron" in app_name_lower or "antigravity" in app_name_lower:
+            for window in window_list:
+                owner = str(window.get(Quartz.kCGWindowOwnerName, "")).lower()
+                if "antigravity" in owner or "electron" in owner:
+                    return str(window.get(Quartz.kCGWindowNumber))
+
+        # 3. Last resort: just return the first on-screen window (likely frontmost)
+        return str(window_list[0].get(Quartz.kCGWindowNumber))
 
     def _capture_screen(self, app_name: str | None = None) -> str:
         import os
