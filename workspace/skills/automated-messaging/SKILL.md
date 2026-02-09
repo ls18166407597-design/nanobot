@@ -1,5 +1,5 @@
 ---
-name: desktop-messenger
+name: automated-messaging
 description: 桌面消息自动化专家。通过集成脚本实现微信 (WeChat) 与 Telegram 的联系人管理、智能路由及自动消息发送。
 ---
 
