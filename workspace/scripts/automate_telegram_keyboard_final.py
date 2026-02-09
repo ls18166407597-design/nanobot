@@ -17,16 +17,14 @@ async def automate_telegram_keyboard_final(contact_name, message_content):
     
     print(f"🚀 Starting Telegram Automation (Target: {contact_name})...")
     
-    # helper to paste text
+    # helper to paste text safely
     def paste_text(text):
-        script = f'''
-        set the clipboard to "{text}"
-        tell application "System Events"
-            key code 9 using command down -- Cmd+V
-            delay 0.2
-        end tell
-        '''
-        subprocess.run(["osascript", "-e", script])
+        # Use pbcopy to set the clipboard safely (avoids injections and quote/newline issues)
+        subprocess.run(["pbcopy"], input=text, text=True, check=True)
+        # Use AppleScript only to trigger Cmd+V
+        script = 'tell application "System Events" to key code 9 using command down'
+        subprocess.run(["osascript", "-e", script], check=True)
+        time.sleep(0.2)
 
     def press_enter():
         subprocess.run(["osascript", "-e", 'tell application "System Events" to key code 36'])

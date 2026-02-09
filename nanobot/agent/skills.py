@@ -212,12 +212,21 @@ class SkillsLoader:
         return content
 
     def _parse_nanobot_metadata(self, raw: str) -> dict:
-        """Parse nanobot metadata JSON from frontmatter."""
+        """Parse nanobot metadata (JSON or simple YAML block) from frontmatter."""
+        if not raw:
+            return {}
+        # Try JSON first
         try:
             data = json.loads(raw)
             return data.get("nanobot", {}) if isinstance(data, dict) else {}
         except (json.JSONDecodeError, TypeError):
-            return {}
+            # If not JSON, it might be a YAML-like block of key: value
+            metadata = {}
+            for line in raw.split("\n"):
+                if ":" in line:
+                    key, value = line.split(":", 1)
+                    metadata[key.strip()] = value.strip().strip("'\"")
+            return metadata
 
     def _check_requirements(self, skill_meta: dict) -> bool:
         """Check if skill requirements are met (bins, env vars)."""
@@ -262,12 +271,27 @@ class SkillsLoader:
         if content.startswith("---"):
             match = re.match(r"^---\n(.*?)\n---", content, re.DOTALL)
             if match:
-                # Simple YAML parsing
+                # Improved YAML-like parsing to handle multi-line and indented blocks
                 metadata = {}
-                for line in match.group(1).split("\n"):
-                    if ":" in line:
-                        key, value = line.split(":", 1)
-                        metadata[key.strip()] = value.strip().strip("\"'")
+                current_key = None
+                lines = match.group(1).split("\n")
+                
+                for line in lines:
+                    if not line.strip():
+                        continue
+                    
+                    # Check for new key: value at the start of the line or with minimal indent
+                    match_kv = re.match(r"^(\w+):\s*(.*)", line)
+                    if match_kv:
+                        current_key = match_kv.group(1).strip()
+                        value = match_kv.group(2).strip().strip("'\"")
+                        metadata[current_key] = value
+                    elif current_key and (line.startswith("  ") or line.startswith("\t")):
+                        # Indented line belongs to the current key (simple multiline)
+                        if metadata[current_key]:
+                            metadata[current_key] += "\n" + line.strip()
+                        else:
+                            metadata[current_key] = line.strip()
                 return metadata
 
         return None

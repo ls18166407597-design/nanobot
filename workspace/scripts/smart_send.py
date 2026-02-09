@@ -61,8 +61,9 @@ def main():
 
     cmd = [sys.executable, str(script_path), "--contact", target["name"], "--message", args.message]
     
+    masked_cmd = cmd[:-1] + ["[HIDDEN]"]
     print(f"🚀 Dispatching to {target['app']} script...")
-    print(f"Command: {' '.join(cmd)}")
+    print(f"Command: {' '.join(masked_cmd)}")
     
     try:
         subprocess.run(cmd, env=env, check=True)
