@@ -16,7 +16,6 @@ if TYPE_CHECKING:
 from loguru import logger
 
 from nanobot.agent.context import ContextBuilder
-from nanobot.agent.subagent import SubagentManager
 from nanobot.providers.factory import ProviderFactory
 from nanobot.agent.tools.cron import CronTool
 from nanobot.agent.tools.filesystem import (
@@ -35,7 +34,6 @@ from nanobot.agent.tools.message import MessageTool
 from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.agent.tools.shell import ExecTool
 from nanobot.agent.tools.skills import SkillsTool
-from nanobot.agent.tools.spawn import SpawnTool
 from nanobot.agent.tools.browser import BrowserTool
 from nanobot.agent.tools.task import TaskTool
 from nanobot.agent.task_manager import TaskManager
@@ -297,7 +295,7 @@ class AgentLoop:
         Returns:
             The response message, or None if no response needed.
         """
-        # Handle system messages (subagent announces)
+        # Handle system messages (cron signals, etc.)
         # The chat_id contains the original "channel:chat_id" to route back to
         if msg.channel == "system":
             result = await self._process_system_message(msg)
@@ -321,9 +319,7 @@ class AgentLoop:
         if isinstance(message_tool, MessageTool):
             message_tool.set_context(msg.channel, msg.chat_id)
 
-        spawn_tool = self.tools.get("spawn")
-        if isinstance(spawn_tool, SpawnTool):
-            spawn_tool.set_context(msg.channel, msg.chat_id, trace_id=msg.trace_id)
+        cron_tool = self.tools.get("cron")
 
         cron_tool = self.tools.get("cron")
         if isinstance(cron_tool, CronTool):
@@ -641,7 +637,7 @@ class AgentLoop:
 
     async def _process_system_message(self, msg: InboundMessage) -> OutboundMessage | None:
         """
-        Process a system message (e.g., subagent announce).
+        Process a system message (e.g., cron signals).
 
         The chat_id field contains "original_channel:original_chat_id" to route
         the response back to the correct destination.
@@ -683,10 +679,9 @@ class AgentLoop:
             chat_id=origin_chat_id,
         )
 
-        # Agent loop (limited for announce handling)
+        # Agent loop (limited for system message handling)
         iteration = 0
         final_content = None
-        seen_tool_call_hashes: set[str] = set() # Content-based loop detection
 
         while iteration < self.max_iterations:
             iteration += 1
@@ -696,19 +691,6 @@ class AgentLoop:
             )
 
             if response.has_tool_calls:
-                # SHA-256 hash of tool name + arguments for content-based detection
-                current_hashes = []
-                for tc in response.tool_calls:
-                    # Sort arguments to ensure consistent hashing
-                    args_json = json.dumps(tc.arguments, sort_keys=True)
-                    tc_hash = hashlib.sha256(f"{tc.name}:{args_json}".encode()).hexdigest()
-                    current_hashes.append(tc_hash)
-
-                # If we've seen this exact set of tool calls before, it's a loop
-                if iteration > 1 and all(h in seen_tool_call_hashes for h in current_hashes):
-                    logger.warning(f"Loop detected in subagent callback (content-based). Breaking.")
-                    break
-                seen_tool_call_hashes.update(current_hashes)
 
                 tool_call_dicts = [
                     {

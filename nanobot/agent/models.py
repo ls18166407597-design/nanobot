@@ -184,7 +184,7 @@ class ModelRegistry:
                 # Heuristic for "is_free":
                 # If the user registered it as free, or if we detect "free" in name?
                 # For now, we assume if it works and has balance, it's good.
-                # We interpret "is_free" as "registered for subagent use" basically.
+                # We interpret "is_free" as "preferred for high-frequency or background tasks".
                 info.is_free = False
 
             except Exception as e:
