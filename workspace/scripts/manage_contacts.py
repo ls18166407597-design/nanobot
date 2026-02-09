@@ -52,12 +52,37 @@ def remove_contact(contacts, alias):
     save_contacts(contacts)
     print(f"✅ Removed contact: {alias}")
 
+def validate_contacts(contacts):
+    print("🔍 Validating contacts.json...")
+    errors = 0
+    valid_apps = ["WeChat", "Telegram"]
+    
+    for alias, info in contacts.items():
+        entry_errors = []
+        if "name" not in info or not info["name"]:
+            entry_errors.append("Missing 'name'")
+        if "app" not in info or info["app"] not in valid_apps:
+            entry_errors.append(f"Invalid or missing 'app' (must be {valid_apps})")
+            
+        if entry_errors:
+            print(f"❌ Error in '{alias}': {', '.join(entry_errors)}")
+            errors += 1
+            
+    if errors == 0:
+        print("✅ Validation passed: All entries are structurally sound.")
+    else:
+        print(f"⚠️ Found {errors} entries with issues.")
+    return errors == 0
+
 def main():
     parser = argparse.ArgumentParser(description="Manage Desktop Messenger Contacts")
     subparsers = parser.add_subparsers(dest="command", help="Command to execute")
 
     # List
     subparsers.add_parser("list", help="List all contacts")
+    
+    # Validate
+    subparsers.add_parser("validate", help="Validate contacts.json structure")
 
     # Add
     add_parser = subparsers.add_parser("add", help="Add or update a contact")
@@ -75,6 +100,8 @@ def main():
 
     if args.command == "list":
         list_contacts(contacts)
+    elif args.command == "validate":
+        validate_contacts(contacts)
     elif args.command == "add":
         add_contact(contacts, args.alias, args.name, args.app, args.note)
     elif args.command == "remove":

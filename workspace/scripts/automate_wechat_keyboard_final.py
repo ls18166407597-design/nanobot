@@ -29,9 +29,24 @@ async def automate_wechat_keyboard_final(contact_name, message_content):
     def press_enter():
         subprocess.run(["osascript", "-e", 'tell application "System Events" to key code 36'])
 
-    # 1. Activate WeChat
-    print("🔍 Activating WeChat...")
-    subprocess.run(["osascript", "-e", 'tell application "WeChat" to activate'])
+    # 1. Activate WeChat & Health Check
+    print("🔍 Checking if WeChat is running and activating...")
+    check_script = '''
+    tell application "System Events"
+        set isRunning to exists (process "WeChat")
+        if isRunning then
+            tell application "WeChat" to activate
+            return "OK"
+        else
+            return "NOT_RUNNING"
+        end if
+    end tell
+    '''
+    process_check = subprocess.run(["osascript", "-e", check_script], capture_output=True, text=True)
+    if "NOT_RUNNING" in process_check.stdout:
+        print("❌ Error: WeChat is not running. Please start the app first.")
+        sys.exit(1)
+        
     time.sleep(1)
     
     # 2. Command + F to Focus Search

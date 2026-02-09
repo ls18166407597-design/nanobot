@@ -17,15 +17,30 @@ def load_contacts():
 
 def find_contact(query, contacts):
     query = query.lower().strip()
-    # Exact match on key
+    
+    # 1. Exact match on alias (Highest priority)
     if query in contacts:
         return contacts[query]
     
-    # Fuzzy match on name or key
-    for key, info in contacts.items():
-        if query in key or query in info["name"].lower():
-            return info
-    return None
+    # 2. Collect all potential matches
+    matches = []
+    for alias, info in contacts.items():
+        name = info["name"].lower()
+        if alias.startswith(query) or name.startswith(query):
+            matches.append((alias, info, "prefix"))
+        elif query in alias or query in name:
+            matches.append((alias, info, "contains"))
+            
+    if not matches:
+        return None
+        
+    # 3. Sort matches: prefix first, then shortest length (least ambiguous)
+    # Sorting key: (type_weight, length_of_alias)
+    type_weights = {"prefix": 0, "contains": 1}
+    matches.sort(key=lambda x: (type_weights[x[2]], len(x[0])))
+    
+    # If the first match is significantly better or unique, return it
+    return matches[0][1]
 
 def main():
     parser = argparse.ArgumentParser(description="Smart Desktop Messenger Dispatcher")
