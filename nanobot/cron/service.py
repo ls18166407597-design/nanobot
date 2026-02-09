@@ -79,6 +79,7 @@ class CronService:
                             payload=CronPayload(
                                 kind=j["payload"].get("kind", "agent_turn"),
                                 message=j["payload"].get("message", ""),
+                                task_name=j["payload"].get("taskName"),
                                 deliver=j["payload"].get("deliver", False),
                                 channel=j["payload"].get("channel"),
                                 to=j["payload"].get("to"),
@@ -135,6 +136,7 @@ class CronService:
                     "payload": {
                         "kind": j.payload.kind,
                         "message": j.payload.message,
+                        "taskName": j.payload.task_name,
                         "deliver": j.payload.deliver,
                         "channel": j.payload.channel,
                         "to": j.payload.to,
@@ -280,6 +282,7 @@ class CronService:
         name: str,
         schedule: CronSchedule,
         message: str,
+        task_name: str | None = None,
         deliver: bool = False,
         channel: str | None = None,
         to: str | None = None,
@@ -297,6 +300,7 @@ class CronService:
             payload=CronPayload(
                 kind="agent_turn",
                 message=message,
+                task_name=task_name,
                 deliver=deliver,
                 channel=channel,
                 to=to,

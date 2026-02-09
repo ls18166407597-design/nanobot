@@ -41,8 +41,47 @@
 不再需要手动编辑 JSON 或猜测环境问题：
 - `nanobot config`: CLI 级配置管理（查看、修改、校验）。
 - `nanobot doctor`: 系统健康诊断，一键排查环境冲突、API 连通性。
-- `nanobot logs`: 实时追踪 `gateway.log` 和 `audit.log`，调试无忧。
+- `nanobot logs`: 实时追踪 `gateway.log` 和 `audit.log`（默认位于 `NANOBOT_HOME`），并显示实际路径，调试无忧。
 - `nanobot new`: 快速脚手架（如 `nanobot new skill`）助力新能力开发。
+
+## 🧰 任务与调度 (Task + Cron)
+- **任务库**: `task(action="create", name="日报", description="生成日报", command="python scripts/daily.py")`
+- **定时执行**: `cron(action="add", task_name="日报", cron_expr="0 9 * * *")`
+- **任务执行参数**: `task(action="run", name="日报", working_dir=".", timeout=60, confirm=true)`
+- **后台子任务管理**: `spawn(action="list")` / `spawn(action="status", task_id="...")` / `spawn(action="cancel", task_id="...")`
+
+## 🧩 Antigravity OAuth + 本地桥接（OpenAI-Compatible）
+
+如果你希望通过 Google OAuth 登录 Antigravity，但仍使用 OpenAI 兼容接口调用（最省事），可用本地桥接：
+
+```bash
+# 1) OAuth 登录（生成 antigravity_auth.json）
+python3 scripts/antigravity_oauth_login.py --set-default-model
+
+# 2) 启动桥接服务
+python3 scripts/antigravity_bridge.py --port 8046
+```
+
+配置 nanobot 使用桥接：
+```json
+{
+  "providers": {
+    "openai": {
+      "api_base": "http://127.0.0.1:8046/v1",
+      "api_key": "dummy"
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": "gemini-3-flash"
+    }
+  }
+}
+```
+
+说明：
+- `api_key` 只是占位，桥接会忽略它。
+- 当前桥接仅支持非流式（`stream=false`）。
 
 ## 🔥 高级核心优化
 
@@ -60,13 +99,24 @@
     - 实时监控 Token 用量 (支持 GPT-4o/Claude 3)，在达到阈值 (85%) 时自动无损压缩，杜绝 "Context Exceeded" 崩溃。
 3.  **多鉴权轮询 (Auth Rotation)**:
     - 遇到 API 429/5xx 错误时，自动将故障 Key 列入 "冷却名单" 并无缝切换备用线路，保障服务 100% 在线。
-64: 
-65: ## 🖥️ 桌面自动化革命 (Desktop Automation)
-66: 
-67: Nanobot 现已突破 API 限制，具备**真实的桌面应用控制权**：
-68: - **智能分发 (Smart Dispatch)**: 自动判断联系人所在的平台 (WeChat / Telegram) 并精准路由消息。
-69: - **纯键盘流 (Pure Keyboard Flow)**: 甚至不需要鼠标坐标，利用系统级快捷键 (`Cmd+F/K` -> `Paste` -> `Enter`) 实现 100% 稳定的消息发送，彻底解决输入法干扰。
-70: - **动态通讯录**: 支持通过自然语言 (`Add contact...`) 实时管理联系人映射，无需修改代码。
+
+## 🛡️ 第五阶段：高可用路由与多模型治理 (High Availability & Governance)
+
+在最新的更新中，我们进一步强化了 Nanobot 在复杂多模型环境下的生存能力：
+
+1.  **精准模型路由 (Strict Provider Mapping)**:
+    - 彻底重构了凭据匹配算法。现在系统会根据模型名称强制锁定供应商（例如 `gemini` 始终绑定本地代理，`qwen` 始终直连 SiliconFlow），杜绝了 API Key 与 Base URL 错配导致的“弗兰肯斯坦”型 401 报错。
+2.  **全链路 Failover (Subagent Routing)**:
+    - 子任务（Spawned Subagents）现在也接入了主脑的“注册表模型”。即使主线模型（如 GPT-4o）由于配额耗尽失效，子任务也会自动降级到兼容的备用模型执行。
+3.  **动态别名映射**:
+    - 支持在 `config.json` 中配置模型别名。例如你可以定义绰号 `qwen-3-8b`，系统会自动将其映射到物理模型 ID `Qwen/Qwen3-8B` 并正确处理对应的授权。
+## 🖥️ 桌面自动化革命 (Desktop Automation)
+
+Nanobot 现已突破 API 限制，具备**真实的桌面应用控制权**：
+- **智能分发 (Smart Dispatch)**: 自动判断联系人所在的平台 (WeChat / Telegram) 并精准路由消息。
+- **纯键盘流 (Pure Keyboard Flow)**: 甚至不需要鼠标坐标，利用系统级快捷键 (`Cmd+F/K` -> `Paste` -> `Enter`) 实现 100% 稳定的消息发送，彻底解决输入法干扰。
+- **动态通讯录**: 支持通过自然语言 (`Add contact...`) 实时管理联系人映射，无需修改代码。
+> 注：涉及网页搜索/浏览的 `browser` 操作需通过 `spawn` 子智能体执行。
 
 ## 📦 快速安装
 
@@ -97,7 +147,7 @@ workspace/
 
 - ⚙️ **[高级配置指南](docs/CONFIG_GUIDE_CN.md)**
 - 🗺️ **[版本演进路线图](docs/ROADMAP_CN.md)**
-- 🧪 **[全项目测试 SOP](测试过程.md)**
+- 🧪 **全项目测试 SOP** (待补充)
 - 🏗️ **[项目分层结构说明](docs/PROJECT_STRUCTURE.md)**
 
 ---

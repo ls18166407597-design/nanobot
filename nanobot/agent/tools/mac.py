@@ -171,10 +171,25 @@ class MacTool(Tool):
             return f"Failed to close '{app_name}': {str(e)}"
 
     def _list_apps(self) -> str:
-        script = 'tell application "System Events" to get name of (processes where background only is false)'
-        apps = self._run_osascript(script)
-        # AppleScript returns comma separated list
-        return f"Running Apps: {apps}"
+        # Get both name and bundle ID for precision
+        script = 'tell application "System Events" to get {name, bundle identifier} of (processes where background only is false)'
+        raw_output = self._run_osascript(script)
+        
+        # AppleScript returns a comma-separated list of names followed by a list of IDs
+        # Format: "Name1, Name2, ID1, ID2"
+        parts = [p.strip() for p in raw_output.split(",")]
+        mid = len(parts) // 2
+        names = parts[:mid]
+        bundle_ids = parts[mid:]
+        
+        running_apps = []
+        for name, bid in zip(names, bundle_ids):
+            display_name = name
+            if name == "Electron" and bid == "com.google.antigravity":
+                display_name = "Antigravity"
+            running_apps.append(display_name)
+            
+        return f"Running Apps: {', '.join(running_apps)}"
 
     def get_frontmost_app_info(self) -> str:
         """Get the name and bundle identifier of the frontmost application."""

@@ -89,11 +89,19 @@ class ExecTool(Tool):
                     return llm_error
 
         try:
+            # Inject current python environment into PATH
+            env = os.environ.copy()
+            import sys
+            python_bin = os.path.dirname(sys.executable)
+            if python_bin not in env.get("PATH", ""):
+                env["PATH"] = f"{python_bin}:{env.get('PATH', '')}"
+
             process = await asyncio.create_subprocess_shell(
                 command,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,
+                env=env,
             )
 
             try:

@@ -248,7 +248,7 @@ If you want to use a tool, generate the corresponding tool call object.
         Returns:
             List of messages including system prompt.
         """
-        messages = []
+        messages: list[dict[str, Any]] = []
 
         # System prompt
         # Use current message as query for RAG
@@ -319,7 +319,15 @@ If you want to use a tool, generate the corresponding tool call object.
         Returns:
             Updated message list.
         """
-        msg: dict[str, Any] = {"role": "assistant", "content": content or ""}
+        # Low-latency optimization: Only show thinking placeholder for subsequent iterations
+        # or if it's explicitly needed to avoid Gemini proxy errors.
+        final_content = content or ""
+        if tool_calls and not final_content:
+            # We use a localized placeholder but only if it's likely to take time
+            # or to satisfy protocol requirements for non-empty content
+            final_content = "[正在处理中... 🐾]"
+
+        msg: dict[str, Any] = {"role": "assistant", "content": final_content}
 
         if tool_calls:
             msg["tool_calls"] = tool_calls

@@ -42,12 +42,7 @@ def find_contact(query, contacts):
     # If the first match is significantly better or unique, return it
     return matches[0][1]
 
-def main():
-    parser = argparse.ArgumentParser(description="Smart Desktop Messenger Dispatcher")
-    parser.add_argument("contact", help="Name or alias of the recipient")
-    parser.add_argument("message", help="Message content to send")
-    args = parser.parse_args()
-
+def main_with_args(args):
     contacts = load_contacts()
     target = find_contact(args.contact, contacts)
 
@@ -61,7 +56,6 @@ def main():
     print(f"✅ Found contact: {target['name']} on {target['app']}")
     
     # Dispatch
-    result = None
     env = os.environ.copy()
     env["NANOBOT_HOME"] = os.path.join(os.getcwd(), ".home")
     
@@ -93,22 +87,99 @@ def main():
         subprocess.run(["pbcopy"], input=args.message, text=True, check=True)
     except Exception as e:
         print(f"⚠️ Warning: Failed to copy to clipboard: {e}. Falling back to command line args.")
-        # We don't exit here, the scripts might still work with args, though less securely
 
     # Command construction with masked message
     cmd = [sys.executable, str(script_path), "--contact", target["name"], "--message", "[FROM_CLIPBOARD]"]
     
-    print(f"🚀 Dispatching to {target['app']} script...")
-    print(f"Command: {' '.join(cmd)}") # Already masked by using [FROM_CLIPBOARD]
+    if args.account:
+        cmd.extend(["--account", args.account])
     
+    # Pass close/quit flag if provided
+    if args.close:
+        cmd.append("--close")
+    
+    print(f"🚀 Dispatching to {target['app']} script...")
+    if args.account:
+        print(f"👤 Using Account: {args.account}")
+    if args.close:
+        print("🤫 App will be closed after delivery.")
+        
     try:
-        # Note: We still pass the actual message via env or args if needed, 
-        # but the target scripts are being updated to prefer clipboard.
         subprocess.run(cmd, env=env, check=True)
         print(f"✅ Message delivery triggered successfully for {target['name']}!")
     except subprocess.CalledProcessError as e:
         print(f"❌ Error sending message: {e}")
         sys.exit(e.returncode)
+
+def main():
+    parser = argparse.ArgumentParser(description="Smart Desktop Messenger Dispatcher")
+    parser.add_argument("contact", nargs="?", help="Name or alias of the recipient (optional if using --all)")
+    parser.add_argument("message", help="Message content to send")
+    parser.add_argument("--account", help="Account name or index to use (optional)")
+    parser.add_argument("--close", "--quit", action="store_true", help="Close app after sending")
+    parser.add_argument("--all", action="store_true", help="Send to all contacts")
+    parser.add_argument("--app", help="Filter by app when using --all (e.g., Telegram, WeChat)")
+    args = parser.parse_args()
+    
+    # Batch mode: send to all contacts
+    if args.all:
+        contacts = load_contacts()
+        
+        # Filter by app if specified
+        if args.app:
+            target_contacts = {k: v for k, v in contacts.items() if v["app"].lower() == args.app.lower()}
+            if not target_contacts:
+                print(f"❌ No contacts found for app: {args.app}")
+                sys.exit(1)
+        else:
+            target_contacts = contacts
+        
+        print(f"📨 Batch sending to {len(target_contacts)} contact(s)...")
+        print(f"📝 Message: {args.message}")
+        print()
+        
+        success_count = 0
+        failed_contacts = []
+        
+        for i, (alias, info) in enumerate(target_contacts.items(), 1):
+            print(f"[{i}/{len(target_contacts)}] Sending to {alias} ({info['name']})...")
+            
+            # Create args for single send
+            single_args = argparse.Namespace(
+                contact=alias,
+                message=args.message,
+                account=args.account,
+                close=(i == len(target_contacts) and args.close)  # Only close on last contact
+            )
+            
+            try:
+                main_with_args(single_args)
+                success_count += 1
+                print(f"  ✅ Success!")
+            except SystemExit as e:
+                if e.code != 0:
+                    print(f"  ❌ Failed")
+                    failed_contacts.append(alias)
+            print()
+        
+        # Summary
+        print("=" * 50)
+        print(f"📊 Batch Send Summary:")
+        print(f"  ✅ Successful: {success_count}/{len(target_contacts)}")
+        if failed_contacts:
+            print(f"  ❌ Failed: {', '.join(failed_contacts)}")
+        print("=" * 50)
+        
+        if failed_contacts:
+            sys.exit(1)
+        return
+    
+    # Single mode: require contact argument
+    if not args.contact:
+        parser.error("the following arguments are required: contact (unless using --all)")
+    
+    # Run main logic
+    main_with_args(args)
 
 if __name__ == "__main__":
     main()

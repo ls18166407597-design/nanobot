@@ -8,18 +8,19 @@ The easiest and safest way to manage your settings is via the built-in `nanobot 
 
 ## ✅ Minimum Viable Path (5-minute smoke test)
 1. Set your model and API key.  
-2. Run `nanobot config check` to verify settings.  
+2. Run `nanobot config check` to validate JSON syntax (not full semantic validation).  
 3. Try `nanobot agent -m "Give me 3 things to do today"` to validate a full roundtrip.  
 4. If you want desktop control, set `tools.mac.confirmMode` to `warn` or `require`.  
 
 ### 1. Basic Commands
 - **View current configuration**: `nanobot config list`
 - **Set a parameter**: `nanobot config set agents.defaults.model "gpt-4o"`
-- **Validate configuration**: `nanobot config check`
+- **Validate configuration (JSON only)**: `nanobot config check`
+> `nanobot config set` accepts JSON values (e.g., `true/false`, numbers, arrays, objects, `null`).
 
 ### 2. Common Parameter Paths
 - **LLM Model**: `agents.defaults.model`
-- **Web Proxy**: `tools.web.proxy` (e.g., "http://127.0.0.1:1082")
+- **Web Proxy**: `tools.web.proxy` (e.g., "http://127.0.0.1:1087")
 - **Safety Guard**: `brain.safetyGuard` (true/false)
 - **macOS Confirm Mode**: `tools.mac.confirmMode` (off/warn/require)
 
@@ -33,6 +34,7 @@ Nanobot's "Soul and Memory" are stored in the workspace.
 
 **Data directory override**:
 - Use `NANOBOT_HOME` to override the data directory (defaults to local `.nanobot`).
+- If you start with `start.sh`, the data directory is `./.home`.
 
 **Workspace Hierarchy**:
 1. `IDENTITY.md`: Core mission and role.
@@ -45,7 +47,7 @@ Nanobot's "Soul and Memory" are stored in the workspace.
 ## 🛠️ Core Service Setup
 
 ### 1. Magic Onboarding
-Run `nanobot onboard` for a guided setup. Alternatively, you can directly send API keys to the agent during a session, and it will configure itself automatically.
+Run `nanobot onboard` for a guided setup. Alternatively, you can set keys via `nanobot config set ...` or edit the config file manually.
 
 ### 2. Multi-Channel Access (Gateway)
 Central config: `config.json` (Located in the local `.nanobot/` folder or the directory defined by `NANOBOT_HOME`)
@@ -58,6 +60,41 @@ If you encounter timeouts with Google search or Telegram, ensure the proxy is se
 nanobot config set tools.web.proxy "http://127.0.0.1:1087"
 ```
 
+### 4. Antigravity OAuth + Local Bridge (OpenAI-Compatible)
+
+If you want to login with Google OAuth but still call via an OpenAI-compatible API (lowest friction), use the local bridge:
+
+1. OAuth login (creates `antigravity_auth.json`):
+```
+python3 scripts/antigravity_oauth_login.py --set-default-model
+```
+
+2. Start the bridge service:
+```
+python3 scripts/antigravity_bridge.py --port 8046
+```
+
+3. Point nanobot to the local bridge:
+```
+{
+  "providers": {
+    "openai": {
+      "api_base": "http://127.0.0.1:8046/v1",
+      "api_key": "dummy"
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": "gemini-3-flash"
+    }
+  }
+}
+```
+
+Notes:
+- `api_key` is a placeholder; the bridge ignores it.
+- The bridge currently supports non-streaming only (`stream=false`).
+
 ## 🛡️ System Diagnostics (Doctor)
 If you suspect issues with vision or browser tools, run:
 ```bash
@@ -68,9 +105,11 @@ It automatically checks:
 - Playwright browser drivers
 - macOS Vision permissions
 - Network connectivity
+Note: `browser` actions must be delegated to subagents via `spawn` in the main agent workflow.
 
-## 🧾 Audit Log
-Key tool execution events are recorded in `audit.log` for tracing and latency analysis.
+## 🧾 Logs
+Key tool execution events are recorded in `audit.log` under `NANOBOT_HOME` for tracing and latency analysis.
+Gateway runtime logs are written to `gateway.log` under `NANOBOT_HOME`.
 
 ---
 <p align="center">

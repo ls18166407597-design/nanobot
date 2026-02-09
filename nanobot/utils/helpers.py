@@ -63,11 +63,15 @@ def get_data_path() -> Path:
 
 def get_log_path() -> Path:
     """Get the path to the gateway log file."""
-    # Try local first, then data dir
+    # Prefer data dir (NANOBOT_HOME) to keep logs centralized
+    data_log = get_data_path() / "gateway.log"
+    if data_log.exists():
+        return data_log.resolve()
+    # Fallback to local repo log (legacy)
     local_log = Path("gateway.log")
     if local_log.exists():
         return local_log.resolve()
-    return get_data_path() / "gateway.log"
+    return data_log
 
 
 def get_audit_path() -> Path:

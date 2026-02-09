@@ -196,6 +196,7 @@ def logs(
             for line in all_lines[-n:]:
                 console.print(line.strip())
 
+    console.print(f"[dim]Log path: {path}[/dim]")
     print_last_n(path, lines)
     
     if follow:

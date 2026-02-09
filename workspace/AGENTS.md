@@ -19,7 +19,7 @@
 
 ## 3. 失败处理与审计反馈 (Failure & Auditing)
 - **!!禁令!!**: 严禁在没有工具支撑的情况下编造数据或虚报状态。
-- **审计意识**: 后台任务（Cron/Heartbeat）执行时，必须关注 `audit.log` 的记录。若任务失败，应通过 `gateway.log` 诊断原因。
+- **审计意识**: 后台任务（Cron/Heartbeat）执行时，必须关注 `audit.log` 的记录（默认位于 `NANOBOT_HOME`）。若任务失败，应通过 `gateway.log` 诊断原因（建议使用 `nanobot logs` 查看）。
 - **请示机制**: 工具调用连续失败 2 次或遇到权限死锁时，必须停下说明现状。提供：1. 技术诊断；2. 替代方案；3. 人工介入请求。
 
 ## 4. 沟通契约 (Communication)

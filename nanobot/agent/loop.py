@@ -1,6 +1,7 @@
 import asyncio
 import json
 import time
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
@@ -35,6 +36,8 @@ from nanobot.agent.tools.shell import ExecTool
 from nanobot.agent.tools.skills import SkillsTool
 from nanobot.agent.tools.spawn import SpawnTool
 from nanobot.agent.tools.browser import BrowserTool
+from nanobot.agent.tools.task import TaskTool
+from nanobot.agent.task_manager import TaskManager
 from nanobot.agent.models import ModelRegistry
 from nanobot.agent.tools.provider import ProviderTool
 from nanobot.bus.events import InboundMessage, OutboundMessage
@@ -167,7 +170,7 @@ class AgentLoop:
                             base_url=base_url,
                             api_key=api_key,
                             name=p["name"],
-                            default_model=p.get("model")
+                            default_model=p.get("default_model") or p.get("model")
                         )
 
         await register_all()
@@ -203,9 +206,13 @@ class AgentLoop:
         spawn_tool = SpawnTool(manager=self.subagents)
         self.tools.register(spawn_tool)
 
+        # Task storage path (used by both CronTool and TaskTool)
+        from nanobot.config.loader import get_data_dir
+        task_storage_path = get_data_dir() / "tasks.json"
+
         # Cron tool (for scheduling)
         if self.cron_service:
-            self.tools.register(CronTool(self.cron_service))
+            self.tools.register(CronTool(self.cron_service, task_storage_path=task_storage_path))
 
         # Gmail tool
         self.tools.register(GmailTool())
@@ -233,6 +240,12 @@ class AgentLoop:
                 search_func=None,
             )
         )
+
+        # Task tool (named task management)
+        task_manager = TaskManager(storage_path=task_storage_path)
+        exec_tool = self.tools.get("exec")
+        if exec_tool:
+            self.tools.register(TaskTool(task_manager=task_manager, exec_tool=exec_tool))
 
     async def run(self) -> None:
         """Run the agent loop, processing messages from the bus."""
@@ -341,6 +354,7 @@ class AgentLoop:
         # Agent loop
         iteration = 0
         final_content = None
+        seen_tool_call_ids: set[str] = set()
 
         while iteration < self.max_iterations:
             iteration += 1
@@ -361,6 +375,24 @@ class AgentLoop:
                 tool_calls = self._parse_tool_calls_from_text(response.content)
 
             if tool_calls:
+                # Loop detection: check if we are repeating the exact same tool calls
+                # This often happens with Gemini proxies when they lose context
+                current_ids = [tc.id for tc in tool_calls if tc.id]
+                duplicate_ids = [tid for tid in current_ids if tid in seen_tool_call_ids]
+                
+                # Allow one retry of the same ID (some proxies do this on follow-up)
+                is_strict_loop = iteration > 3 and len(duplicate_ids) == len(current_ids)
+
+                if is_strict_loop:
+                    logger.warning(f"[TraceID: {msg.trace_id}] Loop detected! LLM repeated tool call IDs: {duplicate_ids}. Breaking turn.")
+                    final_content = response.content or "抱歉老板，系统检测到消息处理进入了死循环（重复调用相同工具），已强制中止。这通常是由于网络代理不稳定导致的，请您稍后再试。🐾"
+                    break
+                
+                # Add to seen
+                for tid in current_ids:
+                    if tid:
+                        seen_tool_call_ids.add(tid)
+
                 # Add assistant message with tool calls
                 tool_call_dicts = [
                     {
@@ -374,7 +406,7 @@ class AgentLoop:
                     for tc in tool_calls
                 ]
                 messages = self.context.add_assistant_message(
-                    messages, response.content if not response.has_tool_calls else response.content, tool_call_dicts
+                    messages, response.content, tool_call_dicts
                 )
 
                 # Execute tools in parallel
@@ -481,14 +513,39 @@ class AgentLoop:
         """
         from nanobot.providers.factory import ProviderFactory
 
-        # List of candidate providers: Primary first, then registry fallbacks
+        # List of candidate providers
         candidates = []
-        
-        # 1. Primary provider
+
+        # 1. Determine the "Real" Primary Provider for THIS model
+        primary_provider = self.provider
+        primary_model = self.model
+        primary_name = "primary"
+
+        if self.model_registry:
+            # Check if there's a specialized provider in the registry for this model
+            # that's better than our default 'primary' one.
+            registry_match = None
+            for p_info in self.model_registry.providers.values():
+                if p_info.default_model == self.model or self.model in p_info.models or p_info.name == self.model:
+                    registry_match = p_info
+                    break
+            
+            if registry_match and registry_match.base_url != self.provider.api_base:
+                logger.debug(f"Switching primary provider to registry match '{registry_match.name}' for model '{self.model}'")
+                try:
+                    primary_provider = ProviderFactory.get_provider(
+                        model=registry_match.default_model or self.model,
+                        api_key=registry_match.api_key,
+                        api_base=registry_match.base_url
+                    )
+                    primary_name = registry_match.name
+                except Exception as e:
+                    logger.warning(f"Failed to switch to specific provider for {self.model}: {e}")
+
         candidates.append({
-            "name": "primary",
-            "provider": self.provider,
-            "model": self.model
+            "name": primary_name,
+            "provider": primary_provider,
+            "model": primary_model
         })
         
         # 2. Registry providers (excluding primary if duplicated)
@@ -627,8 +684,8 @@ class AgentLoop:
         while iteration < self.max_iterations:
             iteration += 1
 
-            response = await self.provider.chat(
-                messages=messages, tools=self.tools.get_definitions(), model=self.model
+            response = await self._chat_with_failover(
+                messages=messages, tools=self.tools.get_definitions()
             )
 
             if response.has_tool_calls:
@@ -847,8 +904,12 @@ Conversation History:
             
         import re
         # Strip <think>...</think> (non-greedy, including newline)
-        # Handle cases where the closing tag might be missing at the end
-        content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL)
-        content = re.sub(r"<think>.*$", "", content, flags=re.DOTALL)
+        filtered = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL)
+        filtered = re.sub(r"<think>.*$", "", filtered, flags=re.DOTALL).strip()
         
-        return content.strip()
+        if not filtered and content:
+            # If everything was filtered out, return the raw content to avoid silence
+            # This happens if the model puts its entire response in <think> tags
+            return f"[Thinking Process]\n{content}"
+            
+        return filtered

@@ -133,8 +133,10 @@ class TelegramChannel(BaseChannel):
 
         self._running = True
 
-        # Build the application
-        self._app = Application.builder().token(self.config.token).build()
+        # Build the application (disable proxies/env to avoid MITM issues)
+        from telegram.request import HTTPXRequest
+        request = HTTPXRequest(proxy=None, httpx_kwargs={"trust_env": False})
+        self._app = Application.builder().token(self.config.token).request(request).build()
 
         # Add message handler for text, photos, voice, documents
         self._app.add_handler(

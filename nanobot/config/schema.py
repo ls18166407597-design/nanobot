@@ -173,7 +173,6 @@ class Config(BaseSettings):
         # 0. High priority: Check brain.provider_registry
         if hasattr(self, "brain") and self.brain.provider_registry:
             for p in self.brain.provider_registry:
-                # Support both exact match and case-insensitive match for registry
                 if (
                     p.get("name") == model_name or 
                     p.get("model") == model_name or 
@@ -189,49 +188,32 @@ class Config(BaseSettings):
 
         model_name_lower = model_name.lower()
         
-        # Map of keywords to (path, provider_config)
-        providers_map = {
-            "openrouter": ("providers.openrouter.api_key", self.providers.openrouter),
-            "deepseek": ("providers.deepseek.api_key", self.providers.deepseek),
-            "anthropic": ("providers.anthropic.api_key", self.providers.anthropic),
-            "claude": ("providers.anthropic.api_key", self.providers.anthropic),
-            "openai": ("providers.openai.api_key", self.providers.openai),
-            "gpt": ("providers.openai.api_key", self.providers.openai),
-            "gemini": ("providers.gemini.api_key", self.providers.gemini),
-            "zhipu": ("providers.zhipu.api_key", self.providers.zhipu),
-            "glm": ("providers.zhipu.api_key", self.providers.zhipu),
-            "zai": ("providers.zhipu.api_key", self.providers.zhipu),
-            "dashscope": ("providers.dashscope.api_key", self.providers.dashscope),
-            "qwen": ("providers.dashscope.api_key", self.providers.dashscope),
-            "groq": ("providers.groq.api_key", self.providers.groq),
-            "moonshot": ("providers.moonshot.api_key", self.providers.moonshot),
-            "kimi": ("providers.moonshot.api_key", self.providers.moonshot),
-            "vllm": ("providers.vllm.api_key", self.providers.vllm),
-        }
-        
-        # 1. Match by model name
-        for keyword, (path, provider) in providers_map.items():
-            if keyword in model_name_lower and provider.api_key:
-                return {"key": provider.api_key, "path": path}
-                
-        # 2. Fallback: first available
-        fallback_order = [
-            "openrouter", "deepseek", "anthropic", "openai", 
-            "gemini", "zhipu", "dashscope", "moonshot", "vllm", "groq"
-        ]
-        for name in fallback_order:
-            path, provider = providers_map[name]
-            if provider.api_key:
-                return {"key": provider.api_key, "path": path}
-        
-        # 3. Not found: return expected path for this model if possible
-        expected_path = "providers.openrouter.api_key"
-        for keyword, (path, _) in providers_map.items():
-            if keyword in model_name:
-                expected_path = path
-                break
-                
-        return {"key": None, "path": expected_path}
+        # 1. Match by model name to specific provider
+        if "anthropic" in model_name_lower or "claude" in model_name_lower:
+            return {"key": self.providers.anthropic.api_key, "path": "providers.anthropic.api_key"}
+        if "deepseek" in model_name_lower:
+            return {"key": self.providers.deepseek.api_key, "path": "providers.deepseek.api_key"}
+        if "gemini" in model_name_lower:
+            # If the user has an openai-compatible gemini key (like the proxy), prefer that
+            if self.providers.openai.api_key and "127.0.0.1" in (self.providers.openai.api_base or ""):
+                 return {"key": self.providers.openai.api_key, "path": "providers.openai.api_key"}
+            return {"key": self.providers.gemini.api_key, "path": "providers.gemini.api_key"}
+        if "gpt" in model_name_lower:
+            return {"key": self.providers.openai.api_key, "path": "providers.openai.api_key"}
+        if "qwen" in model_name_lower or "dashscope" in model_name_lower:
+            return {"key": self.providers.dashscope.api_key, "path": "providers.dashscope.api_key"}
+        if "zhipu" in model_name_lower or "glm" in model_name_lower:
+            return {"key": self.providers.zhipu.api_key, "path": "providers.zhipu.api_key"}
+        if "groq" in model_name_lower:
+            return {"key": self.providers.groq.api_key, "path": "providers.groq.api_key"}
+        if "moonshot" in model_name_lower or "kimi" in model_name_lower:
+            return {"key": self.providers.moonshot.api_key, "path": "providers.moonshot.api_key"}
+
+        # 2. Fallback: Check if openai provider has a key (catch-all for many compatibles)
+        if self.providers.openai.api_key:
+            return {"key": self.providers.openai.api_key, "path": "providers.openai.api_key"}
+
+        return {"key": None, "path": "providers.openai.api_key"}
 
     def get_api_key(self, model: str | None = None) -> str | None:
         """Get API key for the given model (or default model)."""
@@ -256,13 +238,29 @@ class Config(BaseSettings):
         model_name_lower = model_name.lower()
         if "openrouter" in model_name_lower:
             return self.providers.openrouter.api_base or "https://openrouter.ai/api/v1"
+        if "anthropic" in model_name_lower or "claude" in model_name_lower:
+            return self.providers.anthropic.api_base
+        if "deepseek" in model_name_lower:
+            return self.providers.deepseek.api_base
+        if "gemini" in model_name_lower:
+            # If it's gemini and we find a local proxy in openai section, use that
+            if self.providers.openai.api_key and "127.0.0.1" in (self.providers.openai.api_base or ""):
+                return self.providers.openai.api_base
+            return self.providers.gemini.api_base
+        if "gpt" in model_name_lower:
+            return self.providers.openai.api_base
+        if "qwen" in model_name_lower or "dashscope" in model_name_lower:
+            return self.providers.dashscope.api_base
         if any(k in model_name_lower for k in ("zhipu", "glm", "zai")):
             return self.providers.zhipu.api_base
-        if "vllm" in model_name_lower:
-            return self.providers.vllm.api_base
-        # Fallback to vLLM/Local if configured (allows using any model name with local proxy)
-        if self.providers.vllm.api_base:
-            return self.providers.vllm.api_base
+        if "moonshot" in model_name_lower or "kimi" in model_name_lower:
+            return self.providers.moonshot.api_base
+        
+        # FINAL FALLBACK: Only use openai.api_base if it looks like a local proxy 
+        # or if no other model match was found. DO NOT blindly fall back to vLLM.
+        if self.providers.openai.api_base:
+            return self.providers.openai.api_base
+            
         return None
 
     model_config = SettingsConfigDict(

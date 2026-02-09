@@ -58,6 +58,7 @@ class SubagentManager:
         self.model_registry = model_registry
         self.web_proxy = web_proxy
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
+        self._task_meta: dict[str, dict[str, Any]] = {}
         self._semaphore = asyncio.Semaphore(10)  # Limit to 10 concurrent subagents
 
     async def spawn(
@@ -117,9 +118,20 @@ class SubagentManager:
             )
         )
         self._running_tasks[task_id] = bg_task
+        self._task_meta[task_id] = {
+            "id": task_id,
+            "label": display_label,
+            "task": task,
+            "model": model or self.model,
+            "started_at": time.time(),
+            "status": "running",
+        }
 
         # Cleanup when done
-        bg_task.add_done_callback(lambda _: self._running_tasks.pop(task_id, None))
+        def _cleanup(_: asyncio.Task[None]) -> None:
+            self._running_tasks.pop(task_id, None)
+            self._task_meta.pop(task_id, None)
+        bg_task.add_done_callback(_cleanup)
 
         logger.info(f"Spawned subagent [{task_id}]: {display_label}")
         return f"Subagent [{display_label}] started (id: {task_id}). I'll notify you when it completes."
@@ -151,23 +163,21 @@ class SubagentManager:
 
                 if model_override and self.model_registry:
                     clean_model = model_override.lower()
-                    # First check for exact provider nickname match
+                    # 1. Match by provider nickname
                     if clean_model in self.model_registry.providers:
                          p_info = self.model_registry.providers[clean_model]
                          logger.info(f"{log_prefix}Subagent [{task_id}] switching to provider nickname '{p_info.name}'")
                          api_key = p_info.api_key
                          api_base = p_info.base_url
-                         if p_info.default_model:
-                             run_model = p_info.default_model
-                         elif p_info.models:
-                             run_model = p_info.models[0]
-                    # Then check for p_name/model_id style
+                         run_model = p_info.default_model or (p_info.models[0] if p_info.models else model_override)
+                    # 2. Match by model ID in registry
                     else:
                         for p_name, p_info in self.model_registry.providers.items():
-                            if clean_model.startswith(f"{p_name}/"):
-                                 logger.info(f"{log_prefix}Subagent [{task_id}] switching to provider '{p_info.name}'")
+                            if model_override in p_info.models or clean_model.startswith(f"{p_name}/"):
+                                 logger.info(f"{log_prefix}Subagent [{task_id}] switching to matching provider '{p_info.name}' for model '{model_override}'")
                                  api_key = p_info.api_key
                                  api_base = p_info.base_url
+                                 run_model = model_override
                                  break
                 
                 # 2. Check for free provider strategy
@@ -314,6 +324,9 @@ class SubagentManager:
             finally:
                 # GUARANTEE: Always announce the result, even if we crashed
                 await self._announce_result(task_id, label, task, final_result, origin, final_status, trace_id)
+                if task_id in self._task_meta:
+                    self._task_meta[task_id]["status"] = final_status
+                    self._task_meta[task_id]["completed_at"] = time.time()
 
     async def _announce_result(
         self,
@@ -370,22 +383,29 @@ Summarize this naturally for the user. Keep it brief (1-2 sentences). Do not men
             "model": model
         })
         
-        # 2. Registry providers (fallbacks)
+        # 2. Registry providers (fallbacks) - Filter by model support
         if self.model_registry:
-            for p_name, p_info in self.model_registry.providers.items():
-                if p_info.base_url == provider.api_base and (p_info.default_model == model or p_info.name == model):
+            # Only add providers that claim to support this model
+            active_infos = self.model_registry.get_active_providers(model=model)
+            
+            for p_info in active_infos:
+                # Skip duplicate of primary
+                if p_info.base_url == provider.api_base and (p_info.default_model == model or model in p_info.models):
                     continue
                 
-                fallback_provider = ProviderFactory.get_provider(
-                    model=p_info.default_model or (p_info.models[0] if p_info.models else model),
-                    api_key=p_info.api_key,
-                    api_base=p_info.base_url
-                )
-                candidates.append({
-                    "name": p_name,
-                    "provider": fallback_provider,
-                    "model": fallback_provider.default_model
-                })
+                try:
+                    fallback_provider = ProviderFactory.get_provider(
+                        model=p_info.default_model or (p_info.models[0] if p_info.models else model),
+                        api_key=p_info.api_key,
+                        api_base=p_info.base_url
+                    )
+                    candidates.append({
+                        "name": p_info.name,
+                        "provider": fallback_provider,
+                        "model": fallback_provider.default_model
+                    })
+                except Exception as e:
+                    logger.warning(f"Failed to create subagent fallback {p_info.name}: {e}")
 
         last_error = None
         for i, candidate in enumerate(candidates):
@@ -480,3 +500,22 @@ When you have completed the task, provide a clear summary of your findings or ac
     def get_running_count(self) -> int:
         """Return the number of currently running subagents."""
         return len(self._running_tasks)
+
+    def list_tasks(self) -> list[dict[str, Any]]:
+        """List currently running tasks."""
+        return list(self._task_meta.values())
+
+    def get_task_status(self, task_id: str) -> dict[str, Any] | None:
+        """Get status for a specific task ID."""
+        return self._task_meta.get(task_id)
+
+    def cancel_task(self, task_id: str) -> bool:
+        """Cancel a running task by ID."""
+        task = self._running_tasks.get(task_id)
+        if not task:
+            return False
+        task.cancel()
+        if task_id in self._task_meta:
+            self._task_meta[task_id]["status"] = "cancelled"
+            self._task_meta[task_id]["completed_at"] = time.time()
+        return True

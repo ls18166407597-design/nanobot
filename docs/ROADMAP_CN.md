@@ -26,8 +26,15 @@
     - 攻克了输入法干扰 (IME Bypass) 与窗口焦点难题。
     - 建立了智能路由 (`Smart Dispatch`) 与联系人动态管理系统。
 - [x] Phase 30: System Robustness & Diagnostic Enhancements (Context Guard, Dynamic Paths, Background Lanes, Telegram Segmentation, Model Adaptation)
-- [ ] **深度链接联动**: 支持 `obsidian://` 等协议实现与桌面应用的无缝交互。
-- [ ] **深度向量 RAG**: 集成本地向量数据库，实现深层文档检索。
+- [x] **深度链接系统**: 支持 `obsidian://` 等协议实现与桌面应用的无缝交互。
+
+## ✅ 第四阶段：企业级韧性与多模型治理 (已完成)
+- [x] **高可用路由 (HA Routing)**: 严格的供应商与模型绑定映射，杜绝 401/400 身份错配。
+- [x] **全链路 Failover**: 子任务自动继承全局注册表，支持精准的模型级故障切换。
+- [x] **动态别名解构**: 支持通过别名 (Nickname) 自动定位物理模型 ID 与凭据。
+
+## 🚀 第五阶段：深度协作与自进化 (进行中)
+- [ ] **深度向量 RAG**: 集成本地向量数据库，实现秒级海量文档检索。
 
 ---
 

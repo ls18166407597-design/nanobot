@@ -3,6 +3,7 @@
 import json
 from typing import Any
 
+import httpx
 from openai import AsyncOpenAI
 from loguru import logger
 
@@ -27,10 +28,12 @@ class OpenAIProvider(LLMProvider):
         self.default_model = default_model
         
         # Initialize client
+        http_client = httpx.AsyncClient(trust_env=False)
         self.client = AsyncOpenAI(
             api_key=api_key or "no-key",  # SDK requires a string
             base_url=api_base,
             timeout=60.0,
+            http_client=http_client,
         )
 
     async def chat(
@@ -79,10 +82,28 @@ class OpenAIProvider(LLMProvider):
             for tc in message.tool_calls:
                 # Parse arguments from JSON string
                 args_str = tc.function.arguments
-                try:
-                    args = json.loads(args_str)
-                except json.JSONDecodeError:
-                    args = {"raw": args_str}
+                args = {}
+                if args_str:
+                    try:
+                        # Standard single object parse
+                        args = json.loads(args_str)
+                    except json.JSONDecodeError:
+                        # Try robust concatenated parsing (some models/proxies do this)
+                        try:
+                            decoder = json.JSONDecoder()
+                            pos = 0
+                            while pos < len(args_str.strip()):
+                                # Skip whitespace
+                                args_str = args_str.strip()
+                                if not args_str: break
+                                data, next_pos = decoder.raw_decode(args_str[pos:])
+                                if isinstance(data, dict):
+                                    args.update(data)
+                                pos += next_pos
+                                if pos >= len(args_str): break
+                        except Exception:
+                            # Fallback if it's really not JSON
+                            args = {"raw": args_str}
 
                 tool_calls.append(
                     ToolCallRequest(

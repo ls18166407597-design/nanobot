@@ -18,22 +18,45 @@
 **场景**: “调研 X 的市场方案并写个报告”。
 **流程**:
 1. `spawn(task="Search & Research X", label="ResearchAgent")`: 委派任务。
-2. 监视进度。子任务结果会反馈到当前上下文。
-3. `edit_file(path="workspace/report.md", ...)`: 将结论整合进正式文档。
-4. `message(channel="telegram", content="...")`: 完成后向老板汇报摘要。
+2. 监视进度：`spawn(action="list")` 或 `spawn(action="status", task_id="...")`。
+3. 需要中止时：`spawn(action="cancel", task_id="...")`。
+4. `edit_file(path="report.md", ...)`: 将结论整合进正式文档。
+5. `message(channel="telegram", content="...")`: 完成后向老板汇报摘要。
 
 ### 3. 系统健康审计 (Self-Maintenance)
 **场景**: “检查我的环境是否正常”。
 **流程**:
 1. `nanobot doctor`: 检查 API 连接和工具链。
-2. `read_file(path="gateway.log")`: 检查最近的运行时报错。
-3. `read_file(path="audit.log")`: 确认后台任务（Cron）是否成功执行。
+2. `nanobot logs`: 查看最新 `gateway.log`（默认在 `NANOBOT_HOME`）。
+3. `nanobot logs --audit`: 查看 `audit.log`（默认在 `NANOBOT_HOME`）。
+
+### 4. 任务与定时 (Task + Cron)
+**场景**: “把常用命令做成任务，并定时执行”。
+**流程**:
+1. `task(action="create", name="日报", description="生成日报", command="python scripts/daily.py")`
+2. `cron(action="add", task_name="日报", cron_expr="0 9 * * *")`
+3. `cron(action="list")`: 查看是否已绑定到任务（会显示 `task:`）。
+
+### 5. Antigravity 本地桥接 (OpenAI-Compatible)
+**场景**: 需要通过 Google OAuth 登录的 Antigravity 模型，但仍希望用 OpenAI 接口调用。
+**流程**:
+1. 先跑 OAuth 登录：
+   `python3 scripts/antigravity_oauth_login.py --set-default-model`
+2. 启动桥接服务：
+   `python3 scripts/antigravity_bridge.py --port 8046`
+3. 在 Nanobot 配置中使用：
+   - `providers.openai.api_base = http://127.0.0.1:8046/v1`
+   - `providers.openai.api_key = dummy`（桥接忽略）
 
 ---
 
 ## 📁 核心工具分布 (Domain-Specific Tools)
 
-- **原生控制**: `mac_control`, `mac_vision`, `peekaboo`, `browser`
+> **重要**: `browser` 相关操作仅允许通过 `spawn` 子智能体执行（主智能体禁止直接调用）。
+> **路径提示**: 若启用 `restrict_to_workspace`，请优先使用工作区相对路径（如 `report.md`、`memory/MEMORY.md`）。
+
+- **原生控制**: `mac_control`, `mac_vision`, `peekaboo`, `browser` (仅子智能体)
 - **文件与知识**: `read/write/edit_file`, `knowledge` (RAG), `memory`
 - **协作与分发**: `spawn`, `github`, `gmail`, `message`
+- **任务与调度**: `task`, `cron`
 - **系统诊断**: `nanobot` (doctor/status)

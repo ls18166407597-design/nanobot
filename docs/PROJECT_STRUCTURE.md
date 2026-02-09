@@ -8,7 +8,9 @@
 nanobot/
 ├── .nanobot/            # [配置与数据中心] (默认位于项目根目录，可通过 NANOBOT_HOME 环境变量自定义)
 │   ├── config.json      #    - 全局配置文件 (API Key, 代理, 渠道)
-│   └── sessions/        #    - 会话历史与短期记忆库
+│   ├── sessions/        #    - 会话历史与短期记忆库
+│   ├── gateway.log      #    - 网关运行日志 (NANOBOT_HOME/gateway.log)
+│   └── audit.log        #    - 审计日志 (NANOBOT_HOME/audit.log)
 │
 ├── nanobot/                 # 🧠 核心源码 (核心包)
 │   ├── agent/               #    - [大脑] 智能体循环与上下文管理
@@ -22,7 +24,9 @@ nanobot/
 │   ├── utils/               #    - [工具] 审计 (Audit)、路径助手等
 │   └── providers/           #    - [适配] 多模型统一调用工厂
 │
-├── gateway.log              # 📄 网关运行日志 (使用 start.sh 自动生成)
+├── .home/                   # 📄 数据目录 (start.sh 默认)
+│   ├── gateway.log          #    - 网关运行日志
+│   └── audit.log            #    - 审计日志
 ├── workspace/               # 📂 活跃工作区 (灵魂、指令与主动性)
 │   ├── IDENTITY.md          #    - [核心] 身份与使命
 │   ├── SOUL.md              #    - [性格] 语气、价值观、性格标签

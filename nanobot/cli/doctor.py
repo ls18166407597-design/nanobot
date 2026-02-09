@@ -103,6 +103,9 @@ def check(quick: bool = False):
         table_paths.add_row("Gateway Log", str(log_path))
         table_paths.add_row("Audit Log", str(audit_path))
         console.print(table_paths)
+    else:
+        console.print(f"[dim]Gateway Log: {log_path}[/dim]")
+        console.print(f"[dim]Audit Log: {audit_path}[/dim]")
 
     # 2. Legacy Check
     if not quick:

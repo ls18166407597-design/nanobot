@@ -43,12 +43,53 @@ No more manual JSON hacking:
 - `nanobot config`: CLI-level configuration management (View, Set, Check).
 - `nanobot doctor`: System health diagnostics to resolve environment conflicts.
 - `nanobot new`: Rapid scaffolding (e.g., `nanobot new skill`) for capability expansion.
+- `nanobot logs`: Tail `gateway.log` and `audit.log` (defaults to `NANOBOT_HOME`) and prints the resolved path.
+
+## 🧰 Task + Cron
+- **Task library**: `task(action="create", name="daily", description="Generate daily report", command="python scripts/daily.py")`
+- **Scheduled run**: `cron(action="add", task_name="daily", cron_expr="0 9 * * *")`
+- **Run with options**: `task(action="run", name="daily", working_dir=".", timeout=60, confirm=true)`
+- **Subagent management**: `spawn(action="list")` / `spawn(action="status", task_id="...")` / `spawn(action="cancel", task_id="...")`
+
+## 🧩 Antigravity OAuth + Local Bridge (OpenAI-Compatible)
+
+If you want to login via Google OAuth but still call through an OpenAI-compatible API (lowest friction), use the local bridge:
+
+```bash
+# 1) OAuth login (creates antigravity_auth.json)
+python3 scripts/antigravity_oauth_login.py --set-default-model
+
+# 2) Start the bridge
+python3 scripts/antigravity_bridge.py --port 8046
+```
+
+Point nanobot to the bridge:
+```json
+{
+  "providers": {
+    "openai": {
+      "api_base": "http://127.0.0.1:8046/v1",
+      "api_key": "dummy"
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": "gemini-3-flash"
+    }
+  }
+}
+```
+
+Notes:
+- `api_key` is a placeholder; the bridge ignores it.
+- The bridge currently supports non-streaming only (`stream=false`).
 
 ## 🔥 Advanced Core Optimizations
 
 - ⚡ **Parallel Tool Execution**: Concurrently executes multiple tools, boosting speed by 50% for complex tasks.
 - 🌍 **Network Proxy Support**: Robust proxy integration for both Browser and Messaging channels.
 - 🧠 **Light RAG & Infinite Dialogue**: Retrieval-based memory loading that solves context window limits.
+> Note: `browser` actions must be delegated to subagents via `spawn`.
 
 ## 📦 Quick Start
 

@@ -25,6 +25,7 @@ class CronPayload:
 
     kind: Literal["system_event", "agent_turn"] = "agent_turn"
     message: str = ""
+    task_name: str | None = None
     # Deliver response to channel
     deliver: bool = False
     channel: str | None = None  # e.g. "whatsapp"
