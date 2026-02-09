@@ -97,6 +97,10 @@ class SubagentManager:
         # Determine provider to use
         run_provider = self.provider
         run_model = model or self.model
+
+        # CRITICAL: Enforce brain separation (Boss's rule)
+        if model and model == self.model:
+             raise ValueError(f"Brain Separation Error: Subagent cannot use the same model as the main agent ({self.model}). Please pick a different model.")
         
         if use_free_provider and self.model_registry:
             free_info = self.model_registry.get_provider("free_first")
@@ -133,8 +137,8 @@ class SubagentManager:
             self._task_meta.pop(task_id, None)
         bg_task.add_done_callback(_cleanup)
 
-        logger.info(f"Spawned subagent [{task_id}]: {display_label}")
-        return f"Subagent [{display_label}] started (id: {task_id}). I'll notify you when it completes."
+        logger.info(f"Spawned subagent [{task_id}]: {display_label} (model: {run_model})")
+        return f"Subagent [{display_label}] started (id: {task_id}, model: {run_model}). I'll notify you when it completes."
 
     async def _run_subagent(
         self,
@@ -182,7 +186,7 @@ class SubagentManager:
                 
                 # 2. Check for free provider strategy
                 elif use_free_provider and self.model_registry and not model_override:
-                    free_info = self.model_registry.get_provider("free_first")
+                    free_info = self.model_registry.get_provider("free_first", exclude_model=self.model)
                     if free_info:
                         logger.info(f"{log_prefix}Subagent [{task_id}] switching to free provider: {free_info.name}")
                         api_key = free_info.api_key
@@ -447,6 +451,9 @@ Summarize this naturally for the user. Keep it brief (1-2 sentences). Do not men
 
     def _build_subagent_prompt(self, task: str, thinking: bool = False) -> str:
         """Build a focused system prompt for the subagent."""
+        from datetime import datetime
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
         thinking_instr = ""
         if thinking:
             thinking_instr = """
@@ -457,6 +464,7 @@ Summarize this naturally for the user. Keep it brief (1-2 sentences). Do not men
 
         return f"""# Subagent
         {thinking_instr}
+Current Time: {now} (You are operating in the present, not the past)
 You are a subagent spawned by the main agent to complete a specific task.
 
 ## Your Task

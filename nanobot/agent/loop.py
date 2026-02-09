@@ -171,7 +171,8 @@ class AgentLoop:
                             base_url=base_url,
                             api_key=api_key,
                             name=p["name"],
-                            default_model=p.get("default_model") or p.get("model")
+                            default_model=p.get("default_model") or p.get("model"),
+                            is_free=True
                         )
 
         await register_all()
@@ -356,6 +357,7 @@ class AgentLoop:
         iteration = 0
         final_content = None
         seen_tool_call_ids: set[str] = set()
+        seen_tool_call_hashes: set[str] = set()
 
         while iteration < self.max_iterations:
             iteration += 1
@@ -703,6 +705,7 @@ class AgentLoop:
         # Agent loop (limited for announce handling)
         iteration = 0
         final_content = None
+        seen_tool_call_hashes: set[str] = set() # Content-based loop detection
 
         while iteration < self.max_iterations:
             iteration += 1
@@ -711,7 +714,33 @@ class AgentLoop:
                 messages=messages, tools=self.tools.get_definitions()
             )
 
+            # CRITICAL: If subagent failed, we SHOULD NOT auto-retry without user consent
+            # We look for failure indicators in the subagent's result message
+            is_failure = any(term in msg.content for term in ["failed", "Error:", "terminated unexpectedly", "中断", "报错"])
+            
+            if is_failure:
+                logger.warning(f"Subagent failure detected. Stopping auto-retry loop to consult user.")
+                return OutboundMessage(
+                    channel=origin_channel,
+                    chat_id=origin_chat_id,
+                    content=str(response.content) if response.content else "任务执行遇到问题，已停止自动重试。请问接下来如何处理？"
+                )
+
             if response.has_tool_calls:
+                # SHA-256 hash of tool name + arguments for content-based detection
+                current_hashes = []
+                for tc in response.tool_calls:
+                    # Sort arguments to ensure consistent hashing
+                    args_json = json.dumps(tc.arguments, sort_keys=True)
+                    tc_hash = hashlib.sha256(f"{tc.name}:{args_json}".encode()).hexdigest()
+                    current_hashes.append(tc_hash)
+
+                # If we've seen this exact set of tool calls before, it's a loop
+                if iteration > 1 and all(h in seen_tool_call_hashes for h in current_hashes):
+                    logger.warning(f"Loop detected in subagent callback (content-based). Breaking.")
+                    break
+                seen_tool_call_hashes.update(current_hashes)
+
                 tool_call_dicts = [
                     {
                         "id": tc.id,

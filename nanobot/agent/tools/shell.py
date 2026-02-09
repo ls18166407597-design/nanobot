@@ -109,6 +109,10 @@ class ExecTool(Tool):
             except asyncio.TimeoutError:
                 process.kill()
                 return f"Error: Command timed out after {self.timeout} seconds"
+            except asyncio.CancelledError:
+                # CRITICAL: If the AI task is cancelled, we MUST kill the OS process
+                process.kill()
+                raise
 
             output_parts = []
 

@@ -65,7 +65,7 @@ class ModelRegistry:
         return active
 
     async def register(
-        self, base_url: str, api_key: str, name: str | None = None, default_model: str | None = None
+        self, base_url: str, api_key: str, name: str | None = None, default_model: str | None = None, is_free: bool = False
     ) -> ProviderInfo:
         """
         Register a provider and check its status/quota.
@@ -82,7 +82,7 @@ class ModelRegistry:
         if not name:
             name = f"provider_{len(self.providers) + 1}"
 
-        info = ProviderInfo(name=name, base_url=base_url, api_key=api_key, default_model=default_model)
+        info = ProviderInfo(name=name, base_url=base_url, api_key=api_key, default_model=default_model, is_free=is_free)
         
         # Check quota/models
         await self._check_provider_status(info)
@@ -94,7 +94,7 @@ class ModelRegistry:
             logger.info(f"Successfully registered provider {name} (models: {len(info.models)})")
         return info
 
-    def get_provider(self, strategy: str = "free_first") -> ProviderInfo | None:
+    def get_provider(self, strategy: str = "free_first", exclude_model: str | None = None) -> ProviderInfo | None:
         """
         Get a provider based on strategy.
         
@@ -110,11 +110,16 @@ class ModelRegistry:
         if strategy == "free_first":
             # Try to find a free provider with balance or no error
             for provider in self.providers.values():
+                # CRITICAL: Exclude main model if requested
+                if exclude_model and (provider.default_model == exclude_model or exclude_model in provider.models):
+                    continue
                 if provider.is_free and (provider.balance > 0 or not provider.error):
                     return provider
             
-            # Fallback to any working provider
+            # Fallback to any working provider (still excluding main model if requested)
             for provider in self.providers.values():
+                if exclude_model and (provider.default_model == exclude_model or exclude_model in provider.models):
+                    continue
                 if not provider.error:
                     return provider
                     

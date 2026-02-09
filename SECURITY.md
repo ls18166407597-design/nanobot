@@ -1,42 +1,39 @@
-# Security Policy
+# 安全策略 (Security Policy)
 
-## Reporting a Vulnerability
+## 漏洞报告
 
-If you discover a security vulnerability in nanobot, please report it by:
+如果您在 Nanobot 中发现安全漏洞，请通过以下方式报告：
 
-1. **DO NOT** open a public GitHub issue
-2. Create a private security advisory on GitHub or contact the repository maintainers
-3. Include:
-   - Description of the vulnerability
-   - Steps to reproduce
-   - Potential impact
-   - Suggested fix (if any)
+1. **不要** 开设公开的 GitHub Issue。
+2. 在 GitHub 上创建私有安全公告 (Private Security Advisory) 或联系项目维护者。
+3. 报告应包含：
+   - 漏洞描述
+   - 复现步骤
+   - 潜在影响
+   - 建议的修复方案（如有）
 
-We aim to respond to security reports within 48 hours.
+我们的目标是在 48 小时内对安全报告做出回应。
 
-## Security Best Practices
+## 安全最佳实践
 
-### 1. API Key Management
+### 1. API 密钥管理
 
-**CRITICAL**: Never commit API keys to version control.
+**关键提示**：严禁将 API 密钥提交至版本控制系统。
 
 ```bash
-# ✅ Good: Store in config file with restricted permissions
-chmod 600 [nanobot home]/config.json
+# ✅ 正确：存储在权限受限的本地配置文件中
+chmod 600 [nanobot_home]/config.json
 
-# ❌ Bad: Hardcoding keys in code or committing them
+# ❌ 错误：硬编码在代码中或提交到 Git
 ```
 
-**Recommendations:**
-- Store API keys in `config.json` within your local `.nanobot` directory with file permissions set to `0600`
-- Consider using environment variables for sensitive keys
-- Use OS keyring/credential manager for production deployments
-- Rotate API keys regularly
-- Use separate API keys for development and production
+**建议：**
+- 将密钥存储在本地 `.home/config.json` 中，并将文件权限设置为 `0600`。
+- 对于生产环境，优先使用环境变量或 OS 钥匙串管理凭据。
 
-### 2. Channel Access Control
+### 2. 渠道访问控制
 
-**IMPORTANT**: Always configure `allowFrom` lists for production use.
+**重要**：生产环境务必配置 `allowFrom` 白名单。
 
 ```json
 {
@@ -44,221 +41,48 @@ chmod 600 [nanobot home]/config.json
     "telegram": {
       "enabled": true,
       "token": "YOUR_BOT_TOKEN",
-      "allowFrom": ["123456789", "987654321"]
-    },
-    "whatsapp": {
-      "enabled": true,
-      "allowFrom": ["+1234567890"]
+      "allowFrom": ["123456789"] 
     }
   }
 }
 ```
 
-**Security Notes:**
-- Empty `allowFrom` list will **ALLOW ALL** users (open by default for personal use)
-- Get your Telegram user ID from `@userinfobot`
-- Use full phone numbers with country code for WhatsApp
-- Review access logs regularly for unauthorized access attempts
+- 如果 `allowFrom` 为空，系统默认**允许所有用户**访问（仅适用于个人本地调试）。
+- 定期审查日志以排查异常访问。
 
-### 3. Shell Command Execution
+### 3. Shell 命令执行 (Hardened V2.0)
 
-The `exec` tool can execute shell commands. While dangerous command patterns are blocked, you should:
+`exec` 工具允许执行 Shell 命令。在 V2.0 架构中，我们引入了更严苛的保护：
 
-- ✅ Review all tool usage in agent logs
-- ✅ Understand what commands the agent is running
-- ✅ Use a dedicated user account with limited privileges
-- ✅ Never run nanobot as root
-- ❌ Don't disable security checks
-- ❌ Don't run on systems with sensitive data without careful review
+- **内容哈希熔断**：系统会监测工具调用的参数内容。如果模型陷入逻辑循环（即使它生成了伪造的新 ID），只要指令内容重复，也会在第 4 轮被强制阻断。
+- **深度路径审计**：系统会对命令中的绝对路径进行正则提取和实时校验。严禁在受限模式下访问工作区以外的敏感系统目录（如 `/etc`, `/var`）。
+- **并发红线**：子智能体并发被严格压制在 3 个以内，防止恶意代码触发资源爆炸。
 
-**Blocked patterns:**
-- `rm -rf /` - Root filesystem deletion
-- Fork bombs
-- Filesystem formatting (`mkfs.*`)
-- Raw disk writes
-- Other destructive operations
+### 4. 文件系统安全
 
-### 4. File System Access
+- ✅ 为 Nanobot 使用独立的非 root 系统用户。
+- ✅ 开启 `restrict_to_workspace` 模式以确保文件操作仅限于项目目录内。
 
-File operations have path traversal protection, but:
+### 5. 网络安全
 
-- ✅ Run nanobot with a dedicated user account
-- ✅ Use filesystem permissions to protect sensitive directories
-- ✅ Regularly audit file operations in logs
-- ❌ Don't give unrestricted access to sensitive files
+- 所有外部 API 调用强制使用 HTTPS。
+- 配置了 10-60 秒的硬超时，防止挂起攻击。
 
-### 5. Network Security
+### 6. 生产环境检查清单
 
-**API Calls:**
-- All external API calls use HTTPS by default
-- Timeouts are configured to prevent hanging requests
-- Consider using a firewall to restrict outbound connections if needed
+在正式部署 Nanobot 前，请对照以下项：
 
-**WhatsApp Bridge:**
-- The bridge runs on `localhost:3001` by default
-- If exposing to network, use proper authentication and TLS
-- Keep authentication data in `whatsapp-auth` (inside `.nanobot`) secure (mode 0700)
+- [ ] API 密钥未硬编码且存储安全。
+- [ ] 配置文件权限已设为 `0600`。
+- [ ] 所有消息渠道已配置 `allowFrom` 白名单。
+- [ ] 运行用户为非 root 用户。
+- [ ] 已开启 V2.0 架构加固开关（哈希检测与路径审计）。
+- [ ] 已启用审计记录 (`audit.log`) 并定期监控。
 
-### 6. Dependency Security
+---
 
-**Critical**: Keep dependencies updated!
+**最后更新时间**：2025-02-10 (V2.0 Hardening Update)
 
-```bash
-# Check for vulnerable dependencies
-pip install pip-audit
-pip-audit
-
-# Update to latest secure versions
-pip install --upgrade nanobot-ai
-```
-
-For Node.js dependencies (WhatsApp bridge):
-```bash
-cd bridge
-npm audit
-npm audit fix
-```
-
-**Important Notes:**
-- Keep `litellm` updated to the latest version for security fixes
-- We've updated `ws` to `>=8.17.1` to fix DoS vulnerability
-- Run `pip-audit` or `npm audit` regularly
-- Subscribe to security advisories for nanobot and its dependencies
-
-### 7. Production Deployment
-
-For production use:
-
-1. **Isolate the Environment**
-   ```bash
-   # Run in a container or VM
-   docker run --rm -it python:3.11
-   pip install nanobot-ai
-   ```
-
-2. **Use a Dedicated User**
-   ```bash
-   sudo useradd -m -s /bin/bash nanobot
-   sudo -u nanobot nanobot gateway
-   ```
-
-3. **Set Proper Permissions**
-   ```bash
-   chmod 700 .nanobot
-   chmod 600 .nanobot/config.json
-   chmod 700 .nanobot/whatsapp-auth
-   ```
-
-4. **Enable Logging**
-   ```bash
-   # Configure log monitoring
-   tail -f .nanobot/logs/nanobot.log
-   ```
-
-5. **Use Rate Limiting**
-   - Configure rate limits on your API providers
-   - Monitor usage for anomalies
-   - Set spending limits on LLM APIs
-
-6. **Regular Updates**
-   ```bash
-   # Check for updates weekly
-   pip install --upgrade nanobot-ai
-   ```
-
-### 8. Development vs Production
-
-**Development:**
-- Use separate API keys
-- Test with non-sensitive data
-- Enable verbose logging
-- Use a test Telegram bot
-
-**Production:**
-- Use dedicated API keys with spending limits
-- Restrict file system access
-- Enable audit logging
-- Regular security reviews
-- Monitor for unusual activity
-
-### 9. Data Privacy
-
-- **Logs may contain sensitive information** - secure log files appropriately
-- **LLM providers see your prompts** - review their privacy policies
-- **Chat history is stored locally** - protect your project's `.nanobot` directory
-- **API keys are in plain text** - use OS keyring for production
-
-### 10. Incident Response
-
-If you suspect a security breach:
-
-1. **Immediately revoke compromised API keys**
-2. **Review logs for unauthorized access**
-   ```bash
-   grep "Access denied" .nanobot/logs/nanobot.log
-   ```
-3. **Check for unexpected file modifications**
-4. **Rotate all credentials**
-5. **Update to latest version**
-6. **Report the incident** to maintainers
-
-## Security Features
-
-### Built-in Security Controls
-
-✅ **Input Validation**
-- Path traversal protection on file operations
-- Dangerous command pattern detection
-- Input length limits on HTTP requests
-
-✅ **Authentication**
-- Allow-list based access control
-- Failed authentication attempt logging
-- Open by default (configure allowFrom for production use)
-
-✅ **Resource Protection**
-- Command execution timeouts (60s default)
-- Output truncation (10KB limit)
-- HTTP request timeouts (10-30s)
-
-✅ **Secure Communication**
-- HTTPS for all external API calls
-- TLS for Telegram API
-- WebSocket security for WhatsApp bridge
-
-## Known Limitations
-
-⚠️ **Current Security Limitations:**
-
-1. **No Rate Limiting** - Users can send unlimited messages (add your own if needed)
-2. **Plain Text Config** - API keys stored in plain text (use keyring for production)
-3. **No Session Management** - No automatic session expiry
-4. **Limited Command Filtering** - Only blocks obvious dangerous patterns
-5. **No Audit Trail** - Limited security event logging (enhance as needed)
-
-## Security Checklist
-
-Before deploying nanobot:
-
-- [ ] API keys stored securely (not in code)
-- [ ] Config file permissions set to 0600
-- [ ] `allowFrom` lists configured for all channels
-- [ ] Running as non-root user
-- [ ] File system permissions properly restricted
-- [ ] Dependencies updated to latest secure versions
-- [ ] Logs monitored for security events
-- [ ] Rate limits configured on API providers
-- [ ] Backup and disaster recovery plan in place
-- [ ] Security review of custom skills/tools
-
-## Updates
-
-**Last Updated**: 2026-02-03
-
-For the latest security updates and announcements, check:
-- GitHub Security Advisories: https://github.com/HKUDS/nanobot/security/advisories
-- Release Notes: https://github.com/HKUDS/nanobot/releases
-
-## License
-
-See LICENSE file for details.
+有关最新的安全更新，请访问：
+- GitHub 安全公告：https://github.com/HKUDS/nanobot/security/advisories
+- 发行日志：https://github.com/HKUDS/nanobot/releases

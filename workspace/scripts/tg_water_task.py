@@ -15,7 +15,7 @@ def run_command(cmd):
         return False
 
 def main():
-    msgs = ['水一水', '水积分', '大家好']
+    msgs = ['签到']
     
     # 1. Ensure Telegram is open
     print("📂 Opening Telegram...")
