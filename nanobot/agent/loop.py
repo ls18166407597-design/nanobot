@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import time
 import uuid
@@ -378,20 +379,34 @@ class AgentLoop:
                 # Loop detection: check if we are repeating the exact same tool calls
                 # This often happens with Gemini proxies when they lose context
                 current_ids = [tc.id for tc in tool_calls if tc.id]
-                duplicate_ids = [tid for tid in current_ids if tid in seen_tool_call_ids]
                 
-                # Allow one retry of the same ID (some proxies do this on follow-up)
-                is_strict_loop = iteration > 3 and len(duplicate_ids) == len(current_ids)
+                # SHA-256 hash of tool name + arguments for content-based detection
+                current_hashes = []
+                for tc in tool_calls:
+                    # Sort arguments to ensure consistent hashing
+                    args_json = json.dumps(tc.arguments, sort_keys=True)
+                    tc_hash = hashlib.sha256(f"{tc.name}:{args_json}".encode()).hexdigest()
+                    current_hashes.append(tc_hash)
+
+                # Check for strict loops (repetitive tool calls)
+                # We block if ALL current calls have been seen before in this turn
+                id_loop = len([tid for tid in current_ids if tid in seen_tool_call_ids]) == len(current_ids)
+                hash_loop = len([h for h in current_hashes if h in seen_tool_call_hashes]) == len(current_hashes)
+                
+                # Allow some progress but block fixed patterns
+                is_strict_loop = iteration > 3 and (id_loop or hash_loop)
 
                 if is_strict_loop:
-                    logger.warning(f"[TraceID: {msg.trace_id}] Loop detected! LLM repeated tool call IDs: {duplicate_ids}. Breaking turn.")
-                    final_content = response.content or "抱歉老板，系统检测到消息处理进入了死循环（重复调用相同工具），已强制中止。这通常是由于网络代理不稳定导致的，请您稍后再试。🐾"
+                    logger.warning(f"[TraceID: {msg.trace_id}] Loop detected! LLM repeated tool calls. IDs: {current_ids}, Hashes: {current_hashes}. Breaking turn.")
+                    final_content = response.content or "抱歉老板，系统检测到消息处理进入了死循环（重复请求相同内容），已强制中止。建议您简化当前指令或稍后再试。🐾"
                     break
                 
                 # Add to seen
                 for tid in current_ids:
                     if tid:
                         seen_tool_call_ids.add(tid)
+                for h in current_hashes:
+                    seen_tool_call_hashes.add(h)
 
                 # Add assistant message with tool calls
                 tool_call_dicts = [
@@ -475,10 +490,18 @@ class AgentLoop:
                         
                         summary = await self._summarize_messages(sum_msgs)
                         if summary:
-                            messages = prefix_msgs + [
+                            # CRITICAL: Strip old summaries from prefix messages before adding new one
+                            new_prefix = []
+                            for m in prefix_msgs:
+                                content = m.get("content", "")
+                                if isinstance(content, str) and "Previous conversation summary:" in content:
+                                    continue
+                                new_prefix.append(m)
+
+                            messages = new_prefix + [
                                 {"role": "system", "content": f"Previous conversation summary: {summary}"}
                             ] + recent_msgs
-                            logger.info(f"[TraceID: {msg.trace_id}] Context compacted via LLM summary.")
+                            logger.info(f"[TraceID: {msg.trace_id}] Context compacted via LLM summary (and deduped).")
             else:
                 # No tool calls, we're done
                 final_content = response.content

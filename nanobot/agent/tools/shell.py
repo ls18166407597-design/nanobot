@@ -155,13 +155,26 @@ class ExecTool(Tool):
                 return "Error: Command blocked by safety guard (not in allowlist)"
 
         if self.restrict_to_workspace:
+            # 1. Block explicit traversal
             if "..\\" in cmd or "../" in cmd:
                 return "Error: Command blocked by safety guard (path traversal detected)"
 
+            # 2. Extract potential paths and validate them
+            # We look for absolute paths or relative-looking paths in the command
+            potential_paths = re.findall(r'(/[^\s;"\']+|[a-zA-Z]:\\[^\s;"\']+)', cmd)
+            allowed_root = (Path(self.working_dir) if self.working_dir else Path.cwd()).resolve()
+
+            for p_str in potential_paths:
+                try:
+                    p = Path(p_str)
+                    if p.is_absolute():
+                        safe_resolve_path(p_str, allowed_root)
+                except (PermissionError, ValueError):
+                    return f"Error: Command blocked by safety guard: Restricted access to '{p_str}'"
+
+            # 3. Validate CWD
             try:
-                # Try to find potential paths in the command and validate them
-                # This is a heuristic, but we check the CWD at least
-                safe_resolve_path(cwd, Path(self.working_dir) if self.working_dir else Path.cwd())
+                safe_resolve_path(cwd, allowed_root)
             except PermissionError as e:
                 return f"Error: Command blocked by safety guard: {e}"
 

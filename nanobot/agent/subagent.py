@@ -59,7 +59,7 @@ class SubagentManager:
         self.web_proxy = web_proxy
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
         self._task_meta: dict[str, dict[str, Any]] = {}
-        self._semaphore = asyncio.Semaphore(10)  # Limit to 10 concurrent subagents
+        self._semaphore = asyncio.Semaphore(3)  # Limit to 3 concurrent subagents (Hardened)
 
     async def spawn(
         self,
