@@ -168,11 +168,6 @@ Only the "visible" response (outside <think> tags) is delivered to the Boss.
 ## 运行环境
 {runtime}
 - 当前模型: {self.model or "Default"}
-- **可用模型**: {self._get_available_models_str()}
-
-### ⚠️ 关于模型的诚实性
-- 严禁编造系统中不存在的模型名称。
-- 如果您派发了子智能体，请务必根据 `spawn` 工具返回的实际模型名称进行汇报，不要猜测或虚构。
 
 ## 工作区
 你的工作区位于: {workspace_path}
@@ -339,15 +334,3 @@ If you want to use a tool, generate the corresponding tool call object.
 
         messages.append(msg)
         return messages
-
-    def _get_available_models_str(self) -> str:
-        """Get a comma-separated string of available model names from config."""
-        if not self.brain_config or not hasattr(self.brain_config, "provider_registry"):
-            return "Default"
-        
-        registry = self.brain_config.provider_registry
-        if not registry:
-            return "Default"
-            
-        names = [p.get("name") for p in registry if p.get("name")]
-        return ", ".join(names) if names else "Default"

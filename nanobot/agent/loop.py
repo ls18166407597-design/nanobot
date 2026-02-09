@@ -105,17 +105,6 @@ class AgentLoop:
         # Initialize Model Registry
         self.model_registry = ModelRegistry()
         self.providers_config = providers_config
-        
-        self.subagents = SubagentManager(
-            provider=provider,
-            workspace=workspace,
-            bus=bus,
-            model=self.model,
-            exec_config=self.exec_config,
-            restrict_to_workspace=restrict_to_workspace,
-            model_registry=self.model_registry,
-            web_proxy=web_proxy,
-        )
 
         self._running = False
         self._register_default_tools()
@@ -197,16 +186,12 @@ class AgentLoop:
             )
         )
 
-        # Web tools - Main agent delegates all browser tasks to sub-agents
-        # self.tools.register(BrowserTool(proxy=self.web_proxy))
+        # Web tools - Re-enabled for single-agent use
+        self.tools.register(BrowserTool(proxy=self.web_proxy))
 
         # Message tool
         message_tool = MessageTool(send_callback=self.bus.publish_outbound)
         self.tools.register(message_tool)
-
-        # Spawn tool (for subagents)
-        spawn_tool = SpawnTool(manager=self.subagents)
-        self.tools.register(spawn_tool)
 
         # Task storage path (used by both CronTool and TaskTool)
         from nanobot.config.loader import get_data_dir
@@ -686,10 +671,6 @@ class AgentLoop:
         if isinstance(message_tool, MessageTool):
             message_tool.set_context(origin_channel, origin_chat_id)
 
-        spawn_tool = self.tools.get("spawn")
-        if isinstance(spawn_tool, SpawnTool):
-            spawn_tool.set_context(origin_channel, origin_chat_id)
-
         cron_tool = self.tools.get("cron")
         if isinstance(cron_tool, CronTool):
             cron_tool.set_context(origin_channel, origin_chat_id)
@@ -713,18 +694,6 @@ class AgentLoop:
             response = await self._chat_with_failover(
                 messages=messages, tools=self.tools.get_definitions()
             )
-
-            # CRITICAL: If subagent failed, we SHOULD NOT auto-retry without user consent
-            # We look for failure indicators in the subagent's result message
-            is_failure = any(term in msg.content for term in ["failed", "Error:", "terminated unexpectedly", "中断", "报错"])
-            
-            if is_failure:
-                logger.warning(f"Subagent failure detected. Stopping auto-retry loop to consult user.")
-                return OutboundMessage(
-                    channel=origin_channel,
-                    chat_id=origin_chat_id,
-                    content=str(response.content) if response.content else "任务执行遇到问题，已停止自动重试。请问接下来如何处理？"
-                )
 
             if response.has_tool_calls:
                 # SHA-256 hash of tool name + arguments for content-based detection
