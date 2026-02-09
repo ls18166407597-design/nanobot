@@ -261,8 +261,7 @@ If you want to use a tool, generate the corresponding tool call object.
         # System prompt
         # Use current message as query for RAG
         system_prompt = self.build_system_prompt(skill_names, query=current_message)
-        if channel and chat_id:
-            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "system", "content": system_prompt})
 
         # History
         messages.extend(history)

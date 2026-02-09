@@ -35,6 +35,17 @@ class ToolRegistry:
         """Get all tool definitions in OpenAI format."""
         return [tool.to_schema() for tool in self._tools.values()]
 
+    def get_all_metadata(self) -> list[dict[str, Any]]:
+        """Get metadata for all registered tools."""
+        return [
+            {
+                "name": tool.name,
+                "description": tool.description.strip().split("\n")[0],
+                "confirm_mode": tool.confirm_mode,
+            }
+            for tool in self._tools.values()
+        ]
+
     async def execute(self, name: str, params: dict[str, Any]) -> str:
         """
         Execute a tool by name with given parameters.

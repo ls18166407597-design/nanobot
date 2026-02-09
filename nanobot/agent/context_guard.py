@@ -27,10 +27,10 @@ class TokenCounter:
         if enc:
             return len(enc.encode(text))
         else:
-            # Fallback A: 1 token ~= 4 chars (English)
-            # Fallback B: 1 token ~= 1 char (Chinese)?
-            # Safe estimate: len(text) / 2.5
-            return int(len(text) / 2.5)
+            # Fallback for Chinese/Mix: 1 token ~= 1.5 chars is safer than 2.5
+            # For pure English, 1 token ~= 4 chars.
+            # We'll use a safer heuristic for the mixed local environment.
+            return int(len(text) / 1.5)
 
     @classmethod
     def count_messages(cls, messages: List[Dict[str, Any]]) -> int:
@@ -87,6 +87,10 @@ class ContextGuard:
         # DeepSeek
         "deepseek-chat": 32768,
         "deepseek-coder": 32768,
+        # Gemini 2/3
+        "gemini-3": 128000,
+        "gemini-2": 1000000,
+        "gemini": 32768, # Default fallback for older gemini
     }
 
     def __init__(self, limit: int | None = None, model: str | None = None):

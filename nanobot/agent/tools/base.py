@@ -34,10 +34,14 @@ class Tool(ABC):
         pass
 
     @property
-    @abstractmethod
     def parameters(self) -> dict[str, Any]:
         """JSON Schema for tool parameters."""
         pass
+
+    @property
+    def confirm_mode(self) -> str:
+        """The confirmation mode of the tool (off, warn, require)."""
+        return "off"
 
     @abstractmethod
     async def execute(self, **kwargs: Any) -> str:

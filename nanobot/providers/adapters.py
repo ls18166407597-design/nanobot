@@ -18,7 +18,9 @@ class ModelAdapter:
             "thinking", 
             "reasoning",
             "o1",
-            "o3"
+            "o3",
+            "gemini-3",
+            "gemini-2"
         ])
 
     @staticmethod

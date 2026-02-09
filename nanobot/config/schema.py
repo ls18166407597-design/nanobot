@@ -59,7 +59,7 @@ class AgentDefaults(BaseModel):
     """Default agent configuration."""
 
     workspace: str = "./workspace"
-    model: str = "anthropic/claude-opus-4-5"
+    model: str = "Qwen/Qwen2.5-7B-Instruct"
     max_tokens: int = 8192
     temperature: float = 0.7
     max_tool_iterations: int = 20
@@ -144,6 +144,10 @@ class BrainConfig(BaseModel):
     safety_guard: bool = True
     reasoning: bool = True  # Toggle for reasoning instructions (<think> format)
     
+    # Heartbeat settings
+    heartbeat_enabled: bool = False  # Disabled by default to save costs
+    heartbeat_interval: int = 1800  # Default 30 minutes in seconds
+    
     # Advanced settings
     memory_chunk_size: int = 500
     summary_threshold: int = 40  # Messages count to trigger summary
@@ -170,64 +174,99 @@ class Config(BaseSettings):
 
 
 
-    def _match_provider(self, model: str | None = None) -> ProviderConfig | None:
-        """Match a provider based on model name."""
-        model = (model or self.agents.defaults.model).lower()
-        # Map of keywords to provider configs
-        providers = {
-            "openrouter": self.providers.openrouter,
-            "deepseek": self.providers.deepseek,
-            "anthropic": self.providers.anthropic,
-            "claude": self.providers.anthropic,
-            "openai": self.providers.openai,
-            "gpt": self.providers.openai,
-            "gemini": self.providers.gemini,
-            "zhipu": self.providers.zhipu,
-            "glm": self.providers.zhipu,
-            "zai": self.providers.zhipu,
-            "dashscope": self.providers.dashscope,
-            "qwen": self.providers.dashscope,
-            "groq": self.providers.groq,
-            "moonshot": self.providers.moonshot,
-            "kimi": self.providers.moonshot,
-            "vllm": self.providers.vllm,
+    def get_api_key_info(self, model: str | None = None) -> dict[str, str | None]:
+        """Get API key and its source information (JSON path)."""
+        model_name = (model or self.agents.defaults.model)
+        
+        # 0. High priority: Check brain.provider_registry
+        if hasattr(self, "brain") and self.brain.provider_registry:
+            for p in self.brain.provider_registry:
+                # Support both exact match and case-insensitive match for registry
+                if (
+                    p.get("name") == model_name or 
+                    p.get("model") == model_name or 
+                    p.get("model", "").lower() == model_name.lower()
+                ):
+                    api_key = p.get("api_key") or p.get("apiKey")
+                    if api_key:
+                        return {
+                            "key": api_key, 
+                            "path": f"brain.providerRegistry[{p.get('name')}]",
+                            "model": p.get("model")
+                        }
+
+        model_name_lower = model_name.lower()
+        
+        # Map of keywords to (path, provider_config)
+        providers_map = {
+            "openrouter": ("providers.openrouter.api_key", self.providers.openrouter),
+            "deepseek": ("providers.deepseek.api_key", self.providers.deepseek),
+            "anthropic": ("providers.anthropic.api_key", self.providers.anthropic),
+            "claude": ("providers.anthropic.api_key", self.providers.anthropic),
+            "openai": ("providers.openai.api_key", self.providers.openai),
+            "gpt": ("providers.openai.api_key", self.providers.openai),
+            "gemini": ("providers.gemini.api_key", self.providers.gemini),
+            "zhipu": ("providers.zhipu.api_key", self.providers.zhipu),
+            "glm": ("providers.zhipu.api_key", self.providers.zhipu),
+            "zai": ("providers.zhipu.api_key", self.providers.zhipu),
+            "dashscope": ("providers.dashscope.api_key", self.providers.dashscope),
+            "qwen": ("providers.dashscope.api_key", self.providers.dashscope),
+            "groq": ("providers.groq.api_key", self.providers.groq),
+            "moonshot": ("providers.moonshot.api_key", self.providers.moonshot),
+            "kimi": ("providers.moonshot.api_key", self.providers.moonshot),
+            "vllm": ("providers.vllm.api_key", self.providers.vllm),
         }
-        for keyword, provider in providers.items():
-            if keyword in model and provider.api_key:
-                return provider
-        return None
+        
+        # 1. Match by model name
+        for keyword, (path, provider) in providers_map.items():
+            if keyword in model_name_lower and provider.api_key:
+                return {"key": provider.api_key, "path": path}
+                
+        # 2. Fallback: first available
+        fallback_order = [
+            "openrouter", "deepseek", "anthropic", "openai", 
+            "gemini", "zhipu", "dashscope", "moonshot", "vllm", "groq"
+        ]
+        for name in fallback_order:
+            path, provider = providers_map[name]
+            if provider.api_key:
+                return {"key": provider.api_key, "path": path}
+        
+        # 3. Not found: return expected path for this model if possible
+        expected_path = "providers.openrouter.api_key"
+        for keyword, (path, _) in providers_map.items():
+            if keyword in model_name:
+                expected_path = path
+                break
+                
+        return {"key": None, "path": expected_path}
 
     def get_api_key(self, model: str | None = None) -> str | None:
-        """Get API key for the given model (or default model). Falls back to first available key."""
-        # Try matching by model name first
-        matched = self._match_provider(model)
-        if matched:
-            return matched.api_key
-        # Fallback: return first available key
-        for provider in [
-            self.providers.openrouter,
-            self.providers.deepseek,
-            self.providers.anthropic,
-            self.providers.openai,
-            self.providers.gemini,
-            self.providers.zhipu,
-            self.providers.dashscope,
-            self.providers.moonshot,
-            self.providers.vllm,
-            self.providers.groq,
-        ]:
-            if provider.api_key:
-                return provider.api_key
-        return None
+        """Get API key for the given model (or default model)."""
+        return self.get_api_key_info(model)["key"]
 
     def get_api_base(self, model: str | None = None) -> str | None:
         """Get API base URL based on model name."""
-        model = (model or self.agents.defaults.model).lower()
-        if "openrouter" in model:
+        model_name = (model or self.agents.defaults.model)
+        
+        # 0. High priority: Check brain.provider_registry
+        if hasattr(self, "brain") and self.brain.provider_registry:
+            for p in self.brain.provider_registry:
+                if (
+                    p.get("name") == model_name or 
+                    p.get("model") == model_name or 
+                    p.get("model", "").lower() == model_name.lower()
+                ):
+                    base_url = p.get("base_url") or p.get("baseUrl")
+                    if base_url:
+                        return base_url
+
+        model_name_lower = model_name.lower()
+        if "openrouter" in model_name_lower:
             return self.providers.openrouter.api_base or "https://openrouter.ai/api/v1"
-        if any(k in model for k in ("zhipu", "glm", "zai")):
+        if any(k in model_name_lower for k in ("zhipu", "glm", "zai")):
             return self.providers.zhipu.api_base
-        if "vllm" in model:
+        if "vllm" in model_name_lower:
             return self.providers.vllm.api_base
         # Fallback to vLLM/Local if configured (allows using any model name with local proxy)
         if self.providers.vllm.api_base:

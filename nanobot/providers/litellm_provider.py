@@ -117,14 +117,15 @@ class LiteLLMProvider(LLMProvider):
                 model = f"moonshot/{model}"
 
             # For Gemini, ensure gemini/ prefix if not already present
+            # ONLY prefix if no custom api_base is used (assuming direct Google AI Studio)
+            if not self.api_base and ("gemini" in model.lower() or "flash" in model.lower()) and not (
+                model.startswith("gemini/") or model.startswith("openrouter/")
+            ):
+                model = f"gemini/{model}"
+
         # kimi-k2.5 only supports temperature=1.0
         if "kimi-k2.5" in model.lower():
             temperature = 1.0
-
-        # Apply model-specific parameter adaptations
-        suggested = ModelAdapter.get_suggested_params(model)
-        if "temperature" in suggested and not kwargs.get("explicit_temp"):
-             temperature = suggested["temperature"]
 
         kwargs: dict[str, Any] = {
             "model": model,
@@ -132,6 +133,11 @@ class LiteLLMProvider(LLMProvider):
             "max_tokens": max_tokens,
             "temperature": temperature,
         }
+
+        # Apply model-specific parameter adaptations
+        suggested = ModelAdapter.get_suggested_params(model)
+        if "temperature" in suggested:
+             kwargs["temperature"] = suggested["temperature"]
 
         # Pass api_base directly for custom endpoints (vLLM, etc.)
         if self.api_base:

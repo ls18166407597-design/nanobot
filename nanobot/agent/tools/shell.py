@@ -61,6 +61,10 @@ class ExecTool(Tool):
                     "type": "string",
                     "description": "Optional working directory for the command",
                 },
+                "confirm": {
+                    "type": "boolean",
+                    "description": "Set to true to bypass safety guard warning for potentially dangerous commands.",
+                },
             },
             "required": ["command"],
         }
@@ -69,9 +73,10 @@ class ExecTool(Tool):
         cwd = working_dir or self.working_dir or os.getcwd()
         
         # Static guard first
+        confirm = bool(kwargs.get("confirm"))
         guard_error = self._static_guard(command, cwd)
-        if guard_error:
-            return guard_error
+        if guard_error and not confirm:
+            return f"{guard_error}. To bypass this safety guard, re-run with 'confirm': true in tool parameters."
 
         # LLM guard second (if enabled)
         llm_warning: str | None = None

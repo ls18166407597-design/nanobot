@@ -48,7 +48,7 @@ class MacTool(Tool):
     }
 
     def __init__(self, confirm_mode: str = "warn") -> None:
-        self.confirm_mode = confirm_mode
+        self._confirm_mode = confirm_mode
         self._confirm_actions = {
             "set_volume",
             "mute",
@@ -58,16 +58,20 @@ class MacTool(Tool):
             "activate_app",
         }
 
+    @property
+    def confirm_mode(self) -> str:
+        """Override base property to return instance value."""
+        return self._confirm_mode
+
     async def execute(self, action: str, **kwargs: Any) -> str:
         value = kwargs.get("value")
         confirm = bool(kwargs.get("confirm"))
 
-        warning: str | None = None
         if action in self._confirm_actions and not confirm:
             if self.confirm_mode == "require":
-                return "Confirmation required: re-run with confirm=true."
+                return "Error: Confirmation required for disruptive macOS action. Please re-run with 'confirm': true in tool parameters."
             if self.confirm_mode == "warn":
-                warning = "Warning: action executed without confirm=true."
+                warning = "Warning: disruptive macOS action executed without 'confirm': true. This can be strictly required by setting tools.mac.confirm_mode to 'require'."
 
         try:
             result: str

@@ -219,6 +219,16 @@ def logs(
 
 
 @app.command()
+def check(
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
+    quick: bool = typer.Option(False, "--quick", "-q", help="Quick connectivity check"),
+):
+    """Run system health checks."""
+    from nanobot.cli.doctor import check as run_checks
+    run_checks(quick=quick)
+
+
+@app.command()
 def gateway(
     port: int = typer.Option(18790, "--port", "-p", help="Gateway port"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
@@ -239,29 +249,53 @@ def gateway(
         logging.basicConfig(level=logging.DEBUG)
 
     from nanobot.config.loader import load_config, get_data_dir, get_config_path
+    from nanobot.utils.helpers import get_log_path
     from nanobot.providers.factory import ProviderFactory
     from nanobot.bus.queue import MessageBus
     from nanobot.cron.service import CronService
 
     data_dir = get_data_dir()
     config_path = get_config_path()
-    console.print(f"[dim]Data directory: {data_dir}[/dim]")
+    log_path = get_log_path()
+    
+    # Environment summary table
+    table = Table(box=None, padding=(0, 2))
+    table.add_column("Env Item", style="cyan")
+    table.add_column("Path", style="dim")
+    table.add_row("Data Dir", str(data_dir))
+    table.add_row("Config", str(config_path))
+    table.add_row("Workspace", str(load_config().workspace_path))
+    table.add_row("Logs", str(log_path))
+    console.print(table)
+    
+    # Auto-logging setup
+    from nanobot.utils.helpers import setup_logging
+    setup_logging(level="DEBUG" if verbose else "INFO")
+    
+    # Quick health check
+    from nanobot.cli.doctor import check as run_health_check
+    run_health_check(quick=True)
+    
     console.print(f"{__logo__} Starting nanobot gateway on port {port}...")
 
     config = load_config()
+    model = config.agents.defaults.model
+    is_bedrock = "bedrock" in model.lower()
 
     # Create components
     bus = MessageBus()
 
     # Create provider (via factory)
-    api_key = config.get_api_key()
-    api_base = config.get_api_base()
-    model = config.agents.defaults.model
-    is_bedrock = model.startswith("bedrock/")
+    key_info = config.get_api_key_info(model)
+    api_key = key_info["key"]
+    model = key_info.get("model", model)  # Remap alias to real model name
+    key_path = key_info["path"]
+    api_base = config.get_api_base(model)
 
     if not api_key and not is_bedrock:
-        console.print(f"[red]Error: No API key configured in {config_path}[/red]")
-        console.print("Set one in config.json under providers.openrouter.apiKey")
+        console.print(f"[red]Error: No API key found for model '{model}'.[/red]")
+        console.print(f"[yellow]Expected at configuration path: {key_path}[/yellow]")
+        console.print("[yellow]Tip: Run 'nanobot config edit' or 'nanobot onboard' to set up your keys.[/yellow]")
         raise typer.Exit(1)
 
     provider = ProviderFactory.get_provider(
@@ -280,7 +314,7 @@ def gateway(
         bus=bus,
         provider=provider,
         workspace=config.workspace_path,
-        model=config.agents.defaults.model,
+        model=model,
         max_iterations=config.agents.defaults.max_tool_iterations,
         exec_config=config.tools.exec,
         cron_service=cron,
@@ -296,37 +330,56 @@ def gateway(
     # Set cron callback (needs agent)
     async def on_cron_job(job: CronJob) -> str | None:
         """Execute a cron job through the agent."""
-        response = await agent.process_direct(
-            job.payload.message,
-            session_key=f"cron:{job.id}",
-            channel=job.payload.channel or "cli",
-            chat_id=job.payload.to or "direct",
-            lane=CommandLane.BACKGROUND,
-        )
-        if job.payload.deliver and job.payload.to:
-            from nanobot.bus.events import OutboundMessage
-
-            await bus.publish_outbound(
-                OutboundMessage(
-                    channel=job.payload.channel or "cli",
-                    chat_id=job.payload.to,
-                    content=response or "",
-                )
+        from nanobot.utils.helpers import audit_log
+        audit_log("cron_start", {"job_id": job.id, "message": job.payload.message})
+        
+        try:
+            response = await agent.process_direct(
+                job.payload.message,
+                session_key=f"cron:{job.id}",
+                channel=job.payload.channel or "cli",
+                chat_id=job.payload.to or "direct",
+                lane=CommandLane.BACKGROUND,
             )
-        return response
+            
+            audit_log("cron_complete", {"job_id": job.id, "success": True})
+
+            if job.payload.deliver and job.payload.to:
+                from nanobot.bus.events import OutboundMessage
+
+                await bus.publish_outbound(
+                    OutboundMessage(
+                        channel=job.payload.channel or "cli",
+                        chat_id=job.payload.to,
+                        content=response or "",
+                    )
+                )
+            return response
+        except Exception as e:
+            audit_log("cron_error", {"job_id": job.id, "error": str(e)})
+            raise
 
     cron.on_job = on_cron_job
 
     # Create heartbeat service
     async def on_heartbeat(prompt: str) -> str:
         """Execute heartbeat through the agent."""
-        return await agent.process_direct(prompt, session_key="heartbeat", lane=CommandLane.BACKGROUND)
+        from nanobot.utils.helpers import audit_log
+        audit_log("heartbeat_start", {})
+        try:
+            response = await agent.process_direct(prompt, session_key="heartbeat", lane=CommandLane.BACKGROUND)
+            tag = "OK" if "HEARTBEAT_OK" in (response or "").upper() else "TASK"
+            audit_log("heartbeat_complete", {"result": tag})
+            return response
+        except Exception as e:
+            audit_log("heartbeat_error", {"error": str(e)})
+            raise
 
     heartbeat = HeartbeatService(
         workspace=config.workspace_path,
         on_heartbeat=on_heartbeat,
-        interval_s=30 * 60,  # 30 minutes
-        enabled=True,
+        interval_s=config.brain.heartbeat_interval,
+        enabled=config.brain.heartbeat_enabled,
     )
 
     # Create channel manager
@@ -341,7 +394,10 @@ def gateway(
     if cron_status["jobs"] > 0:
         console.print(f"[green]✓[/green] Cron: {cron_status['jobs']} scheduled jobs")
 
-    console.print("[green]✓[/green] Heartbeat: every 30m")
+    if config.brain.heartbeat_enabled:
+        console.print(f"[green]✓[/green] Heartbeat: every {config.brain.heartbeat_interval//60}m")
+    else:
+        console.print("[dim]Heartbeat: disabled[/dim]")
 
     async def run():
         try:
@@ -380,16 +436,30 @@ def agent(
     data_dir = get_data_dir()
     config_path = get_config_path()
     
-    console.print(f"[dim]Data directory: {data_dir}[/dim]")
+    # Environment summary (brief)
+    console.print(f"[dim]Data: {data_dir} | Config: {config_path}[/dim]")
     config = load_config()
 
     api_key = config.get_api_key()
     api_base = config.get_api_base()
     model = config.agents.defaults.model
-    is_bedrock = model.startswith("bedrock/")
+    
+    # Auto-logging setup
+    from nanobot.utils.helpers import setup_logging
+    setup_logging(level="INFO") # Default for agent command
+    
+    # Quick connectivity check for first run or when model might be unreachable
+    from nanobot.cli.doctor import check as run_health_check
+    run_health_check(quick=True)
 
-    if not api_key and not is_bedrock:
-        console.print(f"[red]Error: No API key configured in {config_path}[/red]")
+    key_info = config.get_api_key_info(model)
+    api_key = key_info["key"]
+    key_path = key_info["path"]
+
+    if not api_key and not config.agents.defaults.model.startswith("bedrock/"):
+        console.print(f"[red]Error: No API key found for model '{model}'.[/red]")
+        console.print(f"[yellow]Expected at configuration path: {key_path}[/yellow]")
+        console.print("[yellow]Tip: Run 'nanobot config edit' or 'nanobot onboard' to set up your keys.[/yellow]")
         raise typer.Exit(1)
 
     bus = MessageBus()
@@ -894,3 +964,45 @@ def provider_check(
 
 if __name__ == "__main__":
     app()
+@app.command()
+def tools():
+    """List available tools and their safety status."""
+    from nanobot.agent.loop import AgentLoop
+    from nanobot.bus.queue import MessageBus
+    from nanobot.config.loader import load_config
+    from nanobot.providers.factory import ProviderFactory
+
+    config = load_config()
+    bus = MessageBus()
+    
+    # Create a dummy provider to initialize the agent
+    provider = ProviderFactory.get_provider(
+        api_key=config.get_api_key() or "dummy", 
+        model=config.agents.defaults.model
+    )
+    
+    agent = AgentLoop(
+        bus=bus,
+        provider=provider,
+        workspace=config.workspace_path,
+        brain_config=config.brain,
+        mac_confirm_mode=config.tools.mac.confirm_mode,
+    )
+    
+    metadata = agent.tools.get_all_metadata()
+    
+    table = Table(title="Available Tools")
+    table.add_column("Name", style="cyan")
+    table.add_column("Description")
+    table.add_column("Confirm Mode", style="yellow")
+    
+    for m in metadata:
+        confirm_style = "red" if m["confirm_mode"] == "require" else "yellow" if m["confirm_mode"] == "warn" else "green"
+        table.add_row(
+            m["name"],
+            m["description"],
+            f"[{confirm_style}]{m['confirm_mode']}[/{confirm_style}]"
+        )
+        
+    console.print(table)
+    console.print("\n[dim]Tip: Use 'confirm=true' in tool calls for sensitive actions.[/dim]")

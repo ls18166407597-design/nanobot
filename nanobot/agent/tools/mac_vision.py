@@ -54,8 +54,13 @@ class MacVisionTool(Tool):
     }
 
     def __init__(self, confirm_mode: str = "warn") -> None:
-        self.confirm_mode = confirm_mode
+        self._confirm_mode = confirm_mode
         self._confirm_actions = {"capture_screen", "look_at_screen"}
+
+    @property
+    def confirm_mode(self) -> str:
+        """Override base property to return instance value."""
+        return self._confirm_mode
 
     async def execute(self, action: str, **kwargs: Any) -> str:
         if platform.system() != "Darwin":

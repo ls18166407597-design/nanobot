@@ -28,7 +28,9 @@ def safe_resolve_path(path: str | Path, allowed_dir: Path | None = None) -> Path
     resolved = Path(path).expanduser().resolve()
     if allowed_dir:
         allowed_dir = allowed_dir.resolve()
-        if not str(resolved).startswith(str(allowed_dir)):
+        try:
+            resolved.relative_to(allowed_dir)
+        except ValueError:
             raise PermissionError(f"Path '{path}' is outside allowed directory '{allowed_dir}'")
     return resolved
 
@@ -137,17 +139,39 @@ def safe_filename(name: str) -> str:
     return name.strip()
 
 
-def parse_session_key(key: str) -> tuple[str, str]:
-    """
-    Parse a session key into channel and chat_id.
+def audit_log(event_type: str, details: dict) -> None:
+    """Record a structured event to the audit log."""
+    import json
+    path = get_audit_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    
+    record = {
+        "timestamp": timestamp(),
+        "type": event_type,
+        "details": details
+    }
+    
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
-    Args:
-        key: Session key in format "channel:chat_id"
-
-    Returns:
-        Tuple of (channel, chat_id)
-    """
-    parts = key.split(":", 1)
-    if len(parts) != 2:
-        raise ValueError(f"Invalid session key: {key}")
-    return parts[0], parts[1]
+def setup_logging(level: str = "INFO", log_file: Path | None = None) -> None:
+    """Setup logging to both console and file using loguru."""
+    import sys
+    from loguru import logger
+    
+    # Remove default handler
+    logger.remove()
+    
+    # Add console handler (standard stderr)
+    logger.add(
+        sys.stderr, 
+        level=level, 
+        format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>"
+    )
+    
+    # Add file handler
+    actual_log_file = log_file or get_log_path()
+    actual_log_file.parent.mkdir(parents=True, exist_ok=True)
+    logger.add(actual_log_file, rotation="10 MB", level=level, retention="7 days", compression="zip")
+    
+    logger.info(f"Logging initialized. Level: {level}, File: {actual_log_file}")

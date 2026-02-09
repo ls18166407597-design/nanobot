@@ -431,7 +431,7 @@ class AgentLoop:
                     logger.info(f"[TraceID: {msg.trace_id}] Context utilization high ({evaluation['utilization']:.2f}). Triggering compaction...")
                     # Identify messages to summarize (system/bootstrap usually at start, we keep them)
                     # For now, we summarize everything except system prompt and last 5 tool results/messages
-                    keep_recent = 5
+                    keep_recent = 10
                     to_sum = [m for m in messages if m.get("role") != "system"]
                     if len(to_sum) > keep_recent:
                         prefix_msgs = [m for m in messages if m.get("role") == "system"]
