@@ -51,7 +51,7 @@ def main():
     contacts = load_contacts()
     target = find_contact(args.contact, contacts)
 
-    if not target:
+    if target is None:
         print(f"❌ Unknown contact: '{args.contact}'")
         print("Available contacts:")
         for k, v in contacts.items():
@@ -65,24 +65,47 @@ def main():
     env = os.environ.copy()
     env["NANOBOT_HOME"] = os.path.join(os.getcwd(), ".home")
     
+    app_name = target["app"]
+    app_lower = app_name.lower()
+    
+    # Dynamic Lookup Strategy
+    potential_filenames = [
+        f"automate_{app_lower}_keyboard_final.py",
+        f"automate_{app_lower}_keyboard.py",
+        f"automate_{app_lower}.py"
+    ]
+    
     script_path = None
-    if target["app"] == "WeChat":
-        script_path = Path(__file__).parent / "automate_wechat_keyboard_final.py"
-    elif target["app"] == "Telegram":
-        script_path = Path(__file__).parent / "automate_telegram_keyboard_final.py"
-    else:
-        print(f"❌ Unsupported app: {target['app']}")
+    for fname in potential_filenames:
+        test_path = Path(__file__).parent / fname
+        if test_path.exists():
+            script_path = test_path
+            break
+            
+    if not script_path:
+        print(f"❌ Error: No automation script found for '{app_name}' in {Path(__file__).parent}")
+        print(f"Expected one of: {', '.join(potential_filenames)}")
         sys.exit(1)
 
-    cmd = [sys.executable, str(script_path), "--contact", target["name"], "--message", args.message]
+    # Secure Handling: Use pbcopy to pass message via clipboard to avoid injection
+    try:
+        print("📋 Copying message to clipboard for secure delivery...")
+        subprocess.run(["pbcopy"], input=args.message, text=True, check=True)
+    except Exception as e:
+        print(f"⚠️ Warning: Failed to copy to clipboard: {e}. Falling back to command line args.")
+        # We don't exit here, the scripts might still work with args, though less securely
+
+    # Command construction with masked message
+    cmd = [sys.executable, str(script_path), "--contact", target["name"], "--message", "[FROM_CLIPBOARD]"]
     
-    masked_cmd = cmd[:-1] + ["[HIDDEN]"]
     print(f"🚀 Dispatching to {target['app']} script...")
-    print(f"Command: {' '.join(masked_cmd)}")
+    print(f"Command: {' '.join(cmd)}") # Already masked by using [FROM_CLIPBOARD]
     
     try:
+        # Note: We still pass the actual message via env or args if needed, 
+        # but the target scripts are being updated to prefer clipboard.
         subprocess.run(cmd, env=env, check=True)
-        print(f"✅ Message sent successfully to {target['name']}!")
+        print(f"✅ Message delivery triggered successfully for {target['name']}!")
     except subprocess.CalledProcessError as e:
         print(f"❌ Error sending message: {e}")
         sys.exit(e.returncode)

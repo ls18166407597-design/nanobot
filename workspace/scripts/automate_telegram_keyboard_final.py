@@ -19,8 +19,13 @@ async def automate_telegram_keyboard_final(contact_name, message_content):
     
     # helper to paste text safely
     def paste_text(text):
-        # Use pbcopy to set the clipboard safely (avoids injections and quote/newline issues)
-        subprocess.run(["pbcopy"], input=text, text=True, check=True)
+        if text == "[FROM_CLIPBOARD]":
+            # Already in clipboard
+            print("📋 Using existing clipboard content...")
+        else:
+            # Standard flow: Use pbcopy to set the clipboard safely
+            subprocess.run(["pbcopy"], input=text, text=True, check=True)
+            
         # Use AppleScript only to trigger Cmd+V
         script = 'tell application "System Events" to key code 9 using command down'
         subprocess.run(["osascript", "-e", script], check=True)

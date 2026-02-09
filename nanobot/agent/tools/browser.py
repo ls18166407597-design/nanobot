@@ -81,6 +81,7 @@ class BrowserTool(Tool):
 
     async def _install_playwright(self) -> str:
         """Install Playwright browser binaries."""
+        import asyncio.subprocess
         try:
             logger.info("Installing Playwright browser binaries...")
             process = await asyncio.create_subprocess_exec(
@@ -98,11 +99,13 @@ class BrowserTool(Tool):
 
     async def _get_browser_config(self) -> dict[str, Any]:
         """Detect local browsers to avoid heavy downloads."""
-        # Common macOS paths for Chrome and Edge
+        # Common macOS paths for Chrome, Edge, and Arc
         paths = [
             "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
             "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+            "/Applications/Arc.app/Contents/MacOS/Arc",
             os.path.expanduser("~/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+            os.path.expanduser("~/Applications/Arc.app/Contents/MacOS/Arc"),
         ]
         
         for path in paths:
@@ -131,7 +134,7 @@ class BrowserTool(Tool):
                 # Extra headers to avoid bot detection
                 extra_headers = {
                     "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-                    "Sec-Ch-Ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+                    "Sec-Ch-Ua": '"Not_A Brand";v="120", "Chromium";v="120", "Google Chrome";v="120"',
                 }
                 
                 page = await browser.new_page(user_agent=user_agent, extra_http_headers=extra_headers)
@@ -139,14 +142,18 @@ class BrowserTool(Tool):
                 # Smart Routing: Add site: operator if specific keywords are found
                 q_lower = query.lower()
                 if "site:" not in q_lower:
-                    if "github" in q_lower:
-                        query += " site:github.com"
-                    elif "reddit" in q_lower:
-                        query += " site:reddit.com"
-                    elif "stackoverflow" in q_lower:
-                        query += " site:stackoverflow.com"
-                    elif "zhihu" in q_lower:
-                        query += " site:zhihu.com"
+                    site_mappings = {
+                        "github": "github.com",
+                        "reddit": "reddit.com",
+                        "stackoverflow": "stackoverflow.com",
+                        "zhihu": "zhihu.com",
+                        "douban": "douban.com",
+                        "v2ex": "v2ex.com"
+                    }
+                    for kw, domain in site_mappings.items():
+                        if kw in q_lower:
+                            query += f" site:{domain}"
+                            break
 
                 # Search URL and Selector based on engine
                 if engine == "google":
@@ -240,6 +247,7 @@ class BrowserTool(Tool):
             if "Executable doesn't exist" in str(e):
                 return "Error: Playwright browsers not installed. Please call the 'browser' tool with action='install' first."
             return f"Error during search: {str(e)}"
+        return f"Error: Search failed for {query}"
 
     async def _browse(self, url: str, wait_ms: int) -> str:
         """Open a URL and extract content (preferring local browser)."""
@@ -282,3 +290,4 @@ class BrowserTool(Tool):
             if "Executable doesn't exist" in str(e):
                 return "Error: Playwright browsers not installed. Please call the 'browser' tool with action='install' first."
             return f"Error during browsing: {str(e)}"
+        return "Error: Unknown error during browsing."

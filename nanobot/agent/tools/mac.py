@@ -66,6 +66,7 @@ class MacTool(Tool):
     async def execute(self, action: str, **kwargs: Any) -> str:
         value = kwargs.get("value")
         confirm = bool(kwargs.get("confirm"))
+        warning = None
 
         if action in self._confirm_actions and not confirm:
             if self.confirm_mode == "require":
@@ -74,7 +75,7 @@ class MacTool(Tool):
                 warning = "Warning: disruptive macOS action executed without 'confirm': true. This can be strictly required by setting tools.mac.confirm_mode to 'require'."
 
         try:
-            result: str
+            result = ""
             if action == "set_volume":
                 if value is None:
                     return "Error: 'value' (0-100) is required for 'set_volume'."
@@ -96,7 +97,7 @@ class MacTool(Tool):
             elif action == "list_apps":
                 result = self._list_apps()
             elif action == "get_frontmost_app":
-                result = self._get_frontmost_app()
+                result = self.get_frontmost_app_info()
             elif action == "activate_app":
                 if not value:
                     return "Error: App name is required for 'activate_app'."
@@ -175,13 +176,34 @@ class MacTool(Tool):
         # AppleScript returns comma separated list
         return f"Running Apps: {apps}"
 
-    def _get_frontmost_app(self) -> str:
-        script = 'tell application "System Events" to get name of first process whose frontmost is true'
+    def get_frontmost_app_info(self) -> str:
+        """Get the name and bundle identifier of the frontmost application."""
+        # Get name and bundle identifier using a more robust method
+        script = 'set frontAppName to name of (info for (path to frontmost application))\n' \
+                 'set frontAppID to id of application (frontAppName)\n' \
+                 'get {frontAppName, frontAppID}'
         try:
-            name = self._run_osascript(script)
-            return f"Frontmost App: {name}"
+            raw_output = self._run_osascript(script)
+            # Robust split and strip
+            results = [r.strip().strip('"').strip("'") for r in raw_output.replace(", ", ",").split(",")]
+            name = results[0]
+            bundle_id = results[1] if len(results) > 1 else "Unknown"
+
+            app_info = f"App: {name} | ID: {bundle_id}"
+            
+            # Use system logging
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"Frontmost App raw data: {app_info}")
+                
+            return app_info
         except Exception as e:
-            return f"Error getting frontmost app: {str(e)}"
+            # Fallback for restricted environments
+            try:
+                name = self._run_osascript('name of (info for (path to frontmost application))')
+                return f"App: {name} (Simplified Detection)"
+            except:
+                return f"Error getting frontmost app: {str(e)}"
 
     def _activate_app(self, app_name: str) -> str:
         script = f'tell application "{app_name}" to activate'
@@ -200,5 +222,5 @@ class MacTool(Tool):
         cmd = ["top", "-l", "1", "-n", "0"]  # -l 1 sample, -n 0 lines of processes (header only)
         result = subprocess.run(cmd, capture_output=True, text=True)
         # top header contains the info
-        lines = list(result.stdout.splitlines())[:15]  # Grab first few lines
+        lines = result.stdout.splitlines()[:15]  # Grab first few lines
         return "\n".join(lines)

@@ -1,11 +1,11 @@
 ---
 name: automated-messaging
-description: 桌面消息自动化专家。通过集成脚本实现微信 (WeChat) 与 Telegram 的联系人管理、智能路由及自动消息发送。
+description: 桌面消息自动化专家。通过集成脚本实现微信 (WeChat)、Telegram 及其他主流通讯工具的联系人管理、智能路由及自动消息发送。
 ---
 
 # 桌面消息自动化 (Desktop Messenger) 🐈
 
-此技能旨在让 Nanobot 具备原生级别的 macOS 消息处理能力，通过调用底层自动化脚本，实现与微信和 Telegram 联系人的高效触达。
+此技能旨在让 Nanobot 具备原生级别的 macOS 消息处理能力，通过调用底层自动化脚本，实现与微信、Telegram 等联系人的高效触达。
 
 ## 💡 核心逻辑 (Core Logic)
 

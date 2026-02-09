@@ -79,6 +79,18 @@ class MacVisionTool(Tool):
                     warning = "Warning: action executed without confirm=true."
 
             app_name: str | None = kwargs.get("app_name")
+            frontmost_info = ""
+            if action in ["capture_screen", "look_at_screen"]:
+                # 自动检测当前前台应用，辅助 AI 进行环境感知 (隔离异常)
+                try:
+                    from nanobot.agent.tools.mac import MacTool
+                    tester = MacTool()
+                    app_info = tester.get_frontmost_app_info()
+                    frontmost_info = f"Current Frontmost App Context: {app_info}\n"
+                except Exception as e:
+                    # 不影响主功能的 OCR/截图流程
+                    logger.warning(f"Failed to get frontmost app context for vision: {e}")
+
             if action == "recognize_text":
                 image_path = kwargs.get("image_path")
                 if not image_path:
@@ -95,9 +107,11 @@ class MacVisionTool(Tool):
             else:
                 result = f"Unknown action: {action}"
 
+            # 合并元数据
+            final_output = f"{frontmost_info}{result}" if frontmost_info else result
             if warning:
-                return f"{warning}\n{result}"
-            return result
+                return f"{warning}\n{final_output}"
+            return final_output
         except Exception as e:
             return f"Mac Vision Error: {str(e)}"
 
