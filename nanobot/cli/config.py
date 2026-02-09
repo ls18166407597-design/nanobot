@@ -64,13 +64,12 @@ def set_config(key: str, value: str):
              raise typer.Exit(1)
 
     # Try to infer type
-    if value.lower() == "true":
-        val = True
-    elif value.lower() == "false":
-        val = False
-    elif value.isdigit():
-        val = int(value)
-    else:
+    import json
+    try:
+        # Use json.loads to support bool, int, float, list, dict, and null
+        val = json.loads(value)
+    except json.JSONDecodeError:
+        # Fallback to string if not valid JSON/number/bool
         val = value
 
     if isinstance(current, dict):
@@ -87,9 +86,64 @@ def set_config(key: str, value: str):
 
 @app.command("check")
 def check_config():
-    """Validate configuration file."""
-    # Placeholder for validation logic
-    console.print("[green]Configuration file is valid JSON.[/green]")
+    """Validate configuration file against the schema."""
+    from nanobot.config.loader import load_config
+    config_path = get_config_path()
+    if not config_path.exists():
+        console.print(f"[red]No configuration found at {config_path}.[/red]")
+        raise typer.Exit(1)
+        
+    try:
+        # load_config internals use Config.model_validate
+        load_config(config_path)
+        console.print(f"[green]✓[/green] Configuration at {config_path} is valid.")
+    except Exception as e:
+        console.print(f"[red]❌ Configuration validation failed:[/red]")
+        console.print(f"[dim]{str(e)}[/dim]")
+        raise typer.Exit(1)
+
+@app.command("edit")
+def edit_config():
+    """Open the configuration file in your default system editor."""
+    import os
+    import subprocess
+    import platform
+
+    config_path = get_config_path()
+    if not config_path.exists():
+        console.print(f"[red]No configuration found at {config_path}. Run 'nanobot onboard' first.[/red]")
+        raise typer.Exit(1)
+
+    editor = os.environ.get("EDITOR") or os.environ.get("VISUAL")
+    
+    if not editor:
+        if platform.system() == "Darwin":
+            editor = "open"
+        elif platform.system() == "Windows":
+            editor = "notepad"
+        else:
+            # Linux fallback
+            for e in ["nano", "vi", "vim"]:
+                if subprocess.run(["which", e], capture_output=True).returncode == 0:
+                    editor = e
+                    break
+    
+    if not editor:
+        console.print("[red]No editor found. Please set the EDITOR environment variable.[/red]")
+        console.print(f"Manual edit path: [cyan]{config_path}[/cyan]")
+        raise typer.Exit(1)
+
+    console.print(f"Opening [cyan]{config_path}[/cyan] with [green]{editor}[/green]...")
+    try:
+        if editor == "open":
+            # macOS open uses default app association
+            subprocess.run([editor, str(config_path)], check=True)
+        else:
+            subprocess.run([editor, str(config_path)], check=True)
+    except Exception as e:
+        console.print(f"[red]Failed to open editor: {e}[/red]")
+        console.print(f"Manual edit path: [cyan]{config_path}[/cyan]")
+        raise typer.Exit(1)
 
 if __name__ == "__main__":
     app()

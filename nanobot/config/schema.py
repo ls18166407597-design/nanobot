@@ -100,17 +100,9 @@ class GatewayConfig(BaseModel):
     port: int = 18790
 
 
-class WebSearchConfig(BaseModel):
-    """Web search tool configuration."""
-
-    api_key: str = ""  # Brave Search API key
-    max_results: int = 5
-
-
 class WebToolsConfig(BaseModel):
     """Web tools configuration."""
 
-    search: WebSearchConfig = Field(default_factory=WebSearchConfig)
     proxy: str | None = None  # Proxy for browser tool
 
 

@@ -74,13 +74,16 @@ class AgentLoop:
         max_tokens: int = 8192,
         temperature: float = 0.7,
         mac_confirm_mode: str = "warn",
+        tools_config: "ToolsConfig | None" = None,
     ):
         self.bus = bus
         self.provider = provider
         self.workspace = workspace
         self.model = model or provider.get_default_model()
         self.max_iterations = max_iterations
-        from nanobot.config.schema import BrainConfig, ExecToolConfig, ProvidersConfig
+        from nanobot.config.schema import BrainConfig, ExecToolConfig, ProvidersConfig, ToolsConfig
+        
+        self.tools_config = tools_config or ToolsConfig()
 
         self.exec_config = exec_config or ExecToolConfig()
         self.cron_service = cron_service

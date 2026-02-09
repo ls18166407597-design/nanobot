@@ -148,15 +148,7 @@ Only the "visible" response (outside <think> tags) is delivered to the Boss.
             except Exception:
                 kb_status = " [Needs Setup]"
 
-        web_config_path = data_dir / "web_config.json"
-        has_brave_key = (
-            web_config_path.exists()
-            or os.environ.get("BRAVE_API_KEY")
-        )
-        
         web_line = "- **Web**: Access the internet via the local `browser` tool (Free). Use `action='search'` to find info."
-        if has_brave_key:
-            web_line += " You also have `web_search` (Brave API) available."
 
         reasoning_prompt = self._get_reasoning_prompt()
 

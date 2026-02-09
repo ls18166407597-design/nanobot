@@ -16,24 +16,32 @@ class MessageBus:
     them and pushes responses to the outbound queue.
     """
 
-    def __init__(self):
-        self.inbound: asyncio.Queue[InboundMessage] = asyncio.Queue()
-        self.outbound: asyncio.Queue[OutboundMessage] = asyncio.Queue()
+    def __init__(self, max_size: int = 100):
+        self.inbound: asyncio.Queue[InboundMessage] = asyncio.Queue(maxsize=max_size)
+        self.outbound: asyncio.Queue[OutboundMessage] = asyncio.Queue(maxsize=max_size)
         self._outbound_subscribers: dict[
             str, list[Callable[[OutboundMessage], Awaitable[None]]]
         ] = {}
         self._running = False
 
-    async def publish_inbound(self, msg: InboundMessage) -> None:
-        """Publish a message from a channel to the agent."""
-        await self.inbound.put(msg)
+    async def publish_inbound(self, msg: InboundMessage, timeout: float = 5.0) -> bool:
+        """
+        Publish a message from a channel to the agent.
+        Returns True if published, False if queue is full after timeout.
+        """
+        try:
+            await asyncio.wait_for(self.inbound.put(msg), timeout=timeout)
+            return True
+        except asyncio.TimeoutError:
+            logger.error(f"Inbound queue full, dropped message from {msg.channel}")
+            return False
 
     async def consume_inbound(self) -> InboundMessage:
         """Consume the next inbound message (blocks until available)."""
         return await self.inbound.get()
 
     async def publish_outbound(self, msg: OutboundMessage) -> None:
-        """Publish a response from the agent to channels."""
+        """Publish a response from the agent to channels (with default put)."""
         await self.outbound.put(msg)
 
     async def consume_outbound(self) -> OutboundMessage:
