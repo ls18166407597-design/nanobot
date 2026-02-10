@@ -70,6 +70,8 @@ class MacVisionTool(Tool):
             return "Error: 'pyobjc-framework-Vision' and 'pyobjc-framework-Quartz' are required."
 
         try:
+            # Type safety: Handled by ToolExecutor
+
             confirm = bool(kwargs.get("confirm"))
             warning: str | None = None
             if action in self._confirm_actions and not confirm:

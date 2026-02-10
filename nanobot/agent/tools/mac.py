@@ -68,13 +68,15 @@ class MacTool(Tool):
         confirm = bool(kwargs.get("confirm"))
         warning = None
 
-        if action in self._confirm_actions and not confirm:
-            if self.confirm_mode == "require":
-                return "Error: Confirmation required for disruptive macOS action. Please re-run with 'confirm': true in tool parameters."
-            if self.confirm_mode == "warn":
-                warning = "Warning: disruptive macOS action executed without 'confirm': true. This can be strictly required by setting tools.mac.confirm_mode to 'require'."
-
         try:
+            # Type safety: Handled by ToolExecutor
+
+            if action in self._confirm_actions and not confirm:
+                if self.confirm_mode == "require":
+                    return "Error: Confirmation required for disruptive macOS action. Please re-run with 'confirm': true in tool parameters."
+                if self.confirm_mode == "warn":
+                    warning = "Warning: disruptive macOS action executed without 'confirm': true. This can be strictly required by setting tools.mac.confirm_mode to 'require'."
+
             result = ""
             if action == "set_volume":
                 if value is None:

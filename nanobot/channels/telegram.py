@@ -243,7 +243,7 @@ class TelegramChannel(BaseChannel):
                             text=html_content, 
                             parse_mode="HTML"
                         )
-                        logger.info(f"Telegram sent segment {i+1}/{len(segments)} to {chat_id}")
+                        logger.info(f"[TraceID: {getattr(msg, 'trace_id', 'N/A')}] Telegram sent segment {i+1}/{len(segments)} to {chat_id}")
                         break
                     except Exception as e:
                         if attempt == 2:

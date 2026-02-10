@@ -45,6 +45,7 @@ from nanobot.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 from nanobot.session.manager import SessionManager
 from nanobot.process import CommandQueue, CommandLane
 from nanobot.agent.context_guard import ContextGuard, TokenCounter
+from nanobot.agent.executor import ToolExecutor
 from nanobot.utils.audit import log_event
 
 
@@ -99,6 +100,7 @@ class AgentLoop:
         self.context = ContextBuilder(workspace, model=self.model, brain_config=self.brain_config)
         self.sessions = SessionManager(workspace)
         self.tools = ToolRegistry()
+        self.executor = ToolExecutor(self.tools)
         
         # Initialize Model Registry
         self.model_registry = ModelRegistry()
@@ -421,7 +423,7 @@ class AgentLoop:
                         "tool_call_id": tool_call.id,
                         "args_keys": list(tool_call.arguments.keys()),
                     })
-                    tool_coros.append(self.tools.execute(tool_call.name, tool_call.arguments))
+                    tool_coros.append(self.executor.execute(tool_call.name, tool_call.arguments))
 
                 # Wait for all tools to complete
                 results = await asyncio.gather(*tool_coros, return_exceptions=True)
@@ -430,6 +432,9 @@ class AgentLoop:
                 for tool_call, result in zip(tool_calls, results):
                     # Handle exceptions from individual tools
                     if isinstance(result, Exception):
+                        import traceback
+                        tb = traceback.format_exc()
+                        logger.error(f"[TraceID: {msg.trace_id}] Tool {tool_call.name} failed with traceback:\n{tb}")
                         result_str = f"Error executing tool {tool_call.name}: {str(result)}"
                     else:
                         result_str = str(result)

@@ -59,7 +59,7 @@ class AgentDefaults(BaseModel):
     """Default agent configuration."""
 
     workspace: str = "./workspace"
-    model: str = "Qwen/Qwen2.5-7B-Instruct"
+    model: str = "gemini-3-flash"
     max_tokens: int = 8192
     temperature: float = 0.7
     max_tool_iterations: int = 20
