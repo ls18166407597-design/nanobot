@@ -28,7 +28,7 @@ class OpenAIProvider(LLMProvider):
         self.default_model = default_model
         
         # Initialize client
-        http_client = httpx.AsyncClient(trust_env=False)
+        http_client = httpx.AsyncClient(trust_env=True)
         self.client = AsyncOpenAI(
             api_key=api_key or "no-key",  # SDK requires a string
             base_url=api_base,

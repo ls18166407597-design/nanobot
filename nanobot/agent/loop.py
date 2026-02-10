@@ -596,7 +596,7 @@ class AgentLoop:
                     model=candidate.get("model", self.model),
                     max_tokens=self.max_tokens,
                     temperature=self.temperature,
-                    timeout=25.0, # Fail fast (25s) to allow rotation
+                    timeout=45.0, # Fail fast (45s) to allow rotation
                 )
                 
                 if response.finish_reason == "error":

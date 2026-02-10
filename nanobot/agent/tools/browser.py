@@ -44,7 +44,7 @@ class BrowserTool(Tool):
             "engine": {
                 "type": "string",
                 "enum": ["bing", "google"],
-                "description": "Search engine to use (default: bing). Google is stricter with bot detection.",
+                "description": "Search engine to use (default: bing). Bing is faster and more reliable. Google has strict bot detection and often fails.",
                 "default": "bing"
             },
             "url": {
@@ -169,9 +169,14 @@ class BrowserTool(Tool):
                 
                 # Wait for results to load
                 try:
-                    await page.wait_for_selector(result_selector, timeout=30000)
+                    await page.wait_for_selector(result_selector, timeout=15000) # Reduce timeout for faster fallback
                 except Exception:
                     logger.warning(f"Timeout waiting for search results on {engine}")
+                    if engine == "google":
+                        logger.info("Retrying with Bing for better reliability...")
+                        await browser.close()
+                        return await self._search(query, "bing", wait_ms)
+                    # For Bing or second try, we continue and attempt fallback extraction
                 
                 # Extraction logic for both engines
                 results = await page.evaluate(f'''(selector_str) => {{

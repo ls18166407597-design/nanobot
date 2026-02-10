@@ -5,7 +5,15 @@ import re
 
 from loguru import logger
 from telegram import Update
-from telegram.ext import Application, ContextTypes, MessageHandler, filters
+from telegram.ext import (
+    Application,
+    ApplicationBuilder,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
+)
+from telegram.request import HTTPXRequest
 
 from nanobot.bus.events import OutboundMessage
 from nanobot.bus.queue import MessageBus
@@ -127,56 +135,78 @@ class TelegramChannel(BaseChannel):
 
     async def start(self) -> None:
         """Start the Telegram bot with long polling."""
-        if not self.config.token:
-            logger.error("Telegram bot token not configured")
-            return
+        logger.info("TelegramChannel.start() called")
+        try:
+            if not self.config.token:
+                logger.error("Telegram bot token not configured")
+                return
 
-        self._running = True
+            self._running = True
 
-        # Build the application (disable proxies/env to avoid MITM issues)
-        from telegram.request import HTTPXRequest
-        request = HTTPXRequest(proxy=None, httpx_kwargs={"trust_env": False})
-        self._app = Application.builder().token(self.config.token).request(request).build()
-
-        # Add message handler for text, photos, voice, documents
-        self._app.add_handler(
-            MessageHandler(
-                (
-                    filters.TEXT
-                    | filters.PHOTO
-                    | filters.VOICE
-                    | filters.AUDIO
-                    | filters.Document.ALL
-                )
-                & ~filters.COMMAND,
-                self._on_message,
+            # Build the application with robust request settings
+            logger.info("Setting up HTTPXRequest...")
+            proxy_url = self.config.proxy
+            # If no explicit proxy, trust environment (system) proxy settings
+            trust_env = True if proxy_url is None else False
+            
+            request = HTTPXRequest(
+                proxy=proxy_url, 
+                connection_pool_size=50,      # Corrected parameter name
+                connect_timeout=15.0, 
+                read_timeout=15.0,
+                write_timeout=15.0,
+                httpx_kwargs={"trust_env": trust_env}
             )
-        )
+            logger.info("Building Telegram Application...")
+            self._app = Application.builder().token(self.config.token).request(request).build()
 
-        # Add /start command handler
-        from telegram.ext import CommandHandler
+            # Add message handler for text, photos, voice, documents
+            self._app.add_handler(
+                MessageHandler(
+                    (
+                        filters.TEXT
+                        | filters.PHOTO
+                        | filters.VOICE
+                        | filters.AUDIO
+                        | filters.Document.ALL
+                    )
+                    & ~filters.COMMAND,
+                    self._on_message,
+                )
+            )
 
-        self._app.add_handler(CommandHandler("start", self._on_start))
+            # Add /start command handler
+            self._app.add_handler(CommandHandler("start", self._on_start))
 
-        logger.info("Starting Telegram bot (polling mode)...")
+            logger.info("Initializing Telegram application...")
+            await self._app.initialize()
+            logger.info("Starting Telegram application...")
+            await self._app.start()
 
-        # Initialize and start polling
-        await self._app.initialize()
-        await self._app.start()
+            # Get bot info
+            logger.info("Fetching Telegram bot info (getMe)...")
+            bot_info = await asyncio.wait_for(self._app.bot.get_me(), timeout=30.0)
+            logger.info(f"Telegram bot @{bot_info.username} connected")
 
-        # Get bot info
-        bot_info = await self._app.bot.get_me()
-        logger.info(f"Telegram bot @{bot_info.username} connected")
+            # Start polling (this runs until stopped)
+            logger.info("Starting long polling...")
+            await self._app.updater.start_polling(
+                allowed_updates=["message"],
+                drop_pending_updates=False,
+            )
 
-        # Start polling (this runs until stopped)
-        await self._app.updater.start_polling(
-            allowed_updates=["message"],
-            drop_pending_updates=False,  # Process pending messages
-        )
+            # Keep running until stopped
+            while self._running:
+                await asyncio.sleep(1)
 
-        # Keep running until stopped
-        while self._running:
-            await asyncio.sleep(1)
+        except Exception as e:
+            logger.exception(f"CRITICAL: Telegram initialization failed: {e}")
+            self._running = False
+        finally:
+            if self._app and self._app.running:
+                logger.info("Shutting down Telegram application...")
+                await self._app.stop()
+                await self._app.shutdown()
 
     async def stop(self) -> None:
         """Stop the Telegram bot."""
