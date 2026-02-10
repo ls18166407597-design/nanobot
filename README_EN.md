@@ -3,7 +3,7 @@
     <strong>English</strong> | <a href="README.md">简体中文</a>
   </p>
   <img src="nanobot_logo.png" alt="nanobot" width="500">
-  <h1>nanobot: Ultra-Lightweight OS Secretary (Advanced Edition) 🐈</h1>
+  <h1>nanobot: Ultra-Lightweight OS Secretary (Advanced Edition) </h1>
   <p>
     <strong>Autonomous assistant evolved from [HKUDS/nanobot] with OS-level capabilities</strong>
   </p>
@@ -16,13 +16,13 @@
 
 ---
 
-🐈 **nanobot (Secretary Edition)** is a deeply autonomous personal AI assistant with a strict **Execution Contract**. It maintains the minimalist spirit of the original project while significantly enhancing logic depth, perception, and Developer Experience (DX).
+ **nanobot (Secretary Edition)** is a deeply autonomous personal AI assistant with a strict **Execution Contract**. It maintains the minimalist spirit of the original project while significantly enhancing logic depth, perception, and Developer Experience (DX).
 
 ## ⚖️ Comparison (VS Original)
 
 | Feature | Original Nanobot | **Secretary Edition** |
 | :--- | :--- | :--- |
-| **Core Role** | General AI Assistant | **Proactive Secretary (🐈 Manager-Employee model)** |
+| **Core Role** | General AI Assistant | **Proactive Secretary ( Manager-Employee model)** |
 | **Execution Protocol**| None | **Transparent Delegation, Ask-on-Failure, Result Verification** |
 | **OS Control** | Shell only | **macOS Vision (OCR), Apps, Audio, System Monitoring** |
 | **Desktop Automation** | None | **Full Mouse/Keyboard control via Peekaboo** |
@@ -51,19 +51,11 @@ No more manual JSON hacking:
 - **Run with options**: `task(action="run", name="daily", working_dir=".", timeout=60, confirm=true)`
 - **Subagent management**: `spawn(action="list")` / `spawn(action="status", task_id="...")` / `spawn(action="cancel", task_id="...")`
 
-## 🧩 Antigravity OAuth + Local Bridge (OpenAI-Compatible)
+## 🧩 Local Gemini Bridge
 
-If you want to login via Google OAuth but still call through an OpenAI-compatible API (lowest friction), use the local bridge:
+Nanobot accesses Gemini models via a local bridge on port `8045/8046` (provided by an external application or local bridge service).
 
-```bash
-# 1) OAuth login (creates antigravity_auth.json)
-python3 scripts/antigravity_oauth_login.py --set-default-model
-
-# 2) Start the bridge
-python3 scripts/antigravity_bridge.py --port 8046
-```
-
-Point nanobot to the bridge:
+Configure nanobot to use the local port:
 ```json
 {
   "providers": {
@@ -89,7 +81,7 @@ Notes:
 - ⚡ **Parallel Tool Execution**: Concurrently executes multiple tools, boosting speed by 50% for complex tasks.
 - 🌍 **Network Proxy Support**: Robust proxy integration for both Browser and Messaging channels.
 - 🧠 **Light RAG & Infinite Dialogue**: Retrieval-based memory loading that solves context window limits.
-> Note: `browser` actions must be delegated to subagents via `spawn`.
+> Note: The default workflow is single-agent. Subagents are used only when needed (e.g., long-running tasks or parallel research).
 
 ## 📦 Quick Start
 
@@ -123,5 +115,5 @@ workspace/
 
 ---
 <p align="center">
-  <em> Thanks for using ✨ nanobot! Your private senior executive secretary. 🐾</em>
+  <em> Thanks for using ✨ nanobot! Your private senior executive secretary. </em>
 </p>

@@ -1,7 +1,38 @@
 """Base class for agent tools."""
 
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Optional
+from enum import Enum
+
+
+class ToolSeverity(str, Enum):
+    INFO = "info"
+    WARN = "warn"
+    ERROR = "error"
+    FATAL = "fatal"
+
+
+class ToolResult:
+    """Standardized result for tool execution."""
+
+    def __init__(
+        self,
+        success: bool,
+        output: str,
+        remedy: Optional[str] = None,
+        severity: ToolSeverity = ToolSeverity.INFO,
+        should_retry: bool = False,
+        requires_user_confirmation: bool = False,
+    ):
+        self.success = success
+        self.output = output
+        self.remedy = remedy
+        self.severity = severity
+        self.should_retry = should_retry
+        self.requires_user_confirmation = requires_user_confirmation
+
+    def __str__(self) -> str:
+        return self.output
 
 
 class Tool(ABC):
@@ -44,7 +75,7 @@ class Tool(ABC):
         return "off"
 
     @abstractmethod
-    async def execute(self, **kwargs: Any) -> str:
+    async def execute(self, **kwargs: Any) -> ToolResult:
         """
         Execute the tool with given parameters.
 
@@ -52,7 +83,7 @@ class Tool(ABC):
             **kwargs: Tool-specific parameters.
 
         Returns:
-            String result of the tool execution.
+            ToolResult of the tool execution.
         """
         pass
 

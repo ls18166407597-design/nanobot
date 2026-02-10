@@ -27,7 +27,7 @@ const PORT = parseInt(process.env.BRIDGE_PORT || '3001', 10);
 const DATA_DIR = process.env.NANOBOT_HOME || join(homedir(), '.nanobot');
 const AUTH_DIR = process.env.AUTH_DIR || join(DATA_DIR, 'whatsapp-auth');
 
-console.log('🐈 nanobot WhatsApp Bridge');
+console.log('Nanobot WhatsApp Bridge');
 console.log('========================\n');
 
 const server = new BridgeServer(PORT, AUTH_DIR);

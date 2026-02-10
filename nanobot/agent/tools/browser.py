@@ -6,7 +6,7 @@ import os
 from typing import Any, Literal
 from loguru import logger
 
-from nanobot.agent.tools.base import Tool
+from nanobot.agent.tools.base import Tool, ToolResult
 
 class BrowserTool(Tool):
     """
@@ -60,7 +60,7 @@ class BrowserTool(Tool):
         "required": ["action"]
     }
 
-    async def execute(self, action: str, **kwargs: Any) -> str:
+    async def execute(self, action: str, **kwargs: Any) -> ToolResult:
         if action == "install":
             return await self._install_playwright()
         
@@ -68,18 +68,20 @@ class BrowserTool(Tool):
             query = kwargs.get("query")
             engine = kwargs.get("engine", "bing")
             if not query:
-                return "Error: 'query' is required for search action."
-            return await self._search(query, engine, kwargs.get("wait_ms", 2000))
+                return ToolResult(success=False, output="Error: 'query' is required for search action.", remedy="搜索动作需要提供 'query' 参数。")
+            output = await self._search(query, engine, kwargs.get("wait_ms", 2000))
+            return ToolResult(success=True, output=output)
             
         if action == "browse":
             url = kwargs.get("url")
             if not url:
-                return "Error: 'url' is required for browse action."
-            return await self._browse(url, kwargs.get("wait_ms", 2000))
+                return ToolResult(success=False, output="Error: 'url' is required for browse action.", remedy="浏览动作需要提供 'url' 参数。")
+            output = await self._browse(url, kwargs.get("wait_ms", 2000))
+            return ToolResult(success=True, output=output)
 
-        return f"Error: Unknown action '{action}'."
+        return ToolResult(success=False, output=f"Error: Unknown action '{action}'.", remedy="请检查 action 参数是否正确（search, browse, install）。")
 
-    async def _install_playwright(self) -> str:
+    async def _install_playwright(self) -> ToolResult:
         """Install Playwright browser binaries."""
         import asyncio.subprocess
         try:
@@ -91,11 +93,15 @@ class BrowserTool(Tool):
             )
             stdout, stderr = await process.communicate()
             if process.returncode == 0:
-                return "Playwright browsers installed successfully. 🐾 Boss, I'm ready to browse!"
+                return ToolResult(success=True, output="Playwright browsers installed successfully. System is ready to browse.")
             else:
-                return f"Error installing Playwright: {stderr.decode()}"
+                return ToolResult(
+                    success=False, 
+                    output=f"Error installing Playwright: {stderr.decode()}",
+                    remedy="Playwright 安装失败。请检查网络连接或手动运行 'python -m playwright install chromium'。"
+                )
         except Exception as e:
-            return f"Error running install command: {str(e)}"
+            return ToolResult(success=False, output=f"Error running install command: {str(e)}")
 
     async def _get_browser_config(self) -> dict[str, Any]:
         """Detect local browsers to avoid heavy downloads."""

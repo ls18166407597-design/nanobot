@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from nanobot.session.manager import Session
 
 if TYPE_CHECKING:
-    from nanobot.config.schema import BrainConfig, ExecToolConfig, ProvidersConfig
+    from nanobot.config.schema import BrainConfig, ExecToolConfig, ProvidersConfig, ToolsConfig
     from nanobot.cron.service import CronService
 
 from loguru import logger
@@ -26,6 +26,7 @@ from nanobot.agent.tools.filesystem import (
 )
 from nanobot.agent.tools.github import GitHubTool
 from nanobot.agent.tools.gmail import GmailTool
+from nanobot.agent.tools.qq_mail import QQMailTool
 from nanobot.agent.tools.knowledge import KnowledgeTool
 from nanobot.agent.tools.mac import MacTool
 from nanobot.agent.tools.mac_vision import MacVisionTool
@@ -39,6 +40,11 @@ from nanobot.agent.tools.task import TaskTool
 from nanobot.agent.task_manager import TaskManager
 from nanobot.agent.models import ModelRegistry
 from nanobot.agent.tools.provider import ProviderTool
+from nanobot.agent.tools.weather import WeatherTool
+from nanobot.agent.tools.tavily import TavilyTool
+from nanobot.agent.tools.tianapi import TianAPITool
+from nanobot.agent.tools.tushare import TushareTool
+from nanobot.agent.tools.feishu import FeishuTool
 from nanobot.bus.events import InboundMessage, OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.providers.base import LLMProvider, LLMResponse, ToolCallRequest
@@ -106,6 +112,9 @@ class AgentLoop:
         self.model_registry = ModelRegistry()
         self.providers_config = providers_config
 
+        self._last_busy_notice_time: float = 0
+        self._busy_debounce_seconds: float = self.tools_config.busy_notice_debounce_seconds
+
         self._running = False
         self._register_default_tools()
 
@@ -168,70 +177,114 @@ class AgentLoop:
 
     def _register_default_tools(self) -> None:
         """Register the default set of tools."""
+        def _tool_enabled(name: str) -> bool:
+            if self.tools_config.enabled_tools is not None:
+                return name in self.tools_config.enabled_tools
+            if self.tools_config.disabled_tools:
+                return name not in self.tools_config.disabled_tools
+            return True
+
         # File tools (restrict to workspace if configured)
         allowed_dir = self.workspace if self.restrict_to_workspace else None
-        self.tools.register(ReadFileTool(allowed_dir=allowed_dir))
-        self.tools.register(WriteFileTool(allowed_dir=allowed_dir))
-        self.tools.register(EditFileTool(allowed_dir=allowed_dir))
-        self.tools.register(ListDirTool(allowed_dir=allowed_dir))
+        if _tool_enabled("read_file"):
+            self.tools.register(ReadFileTool(allowed_dir=allowed_dir))
+        if _tool_enabled("write_file"):
+            self.tools.register(WriteFileTool(allowed_dir=allowed_dir))
+        if _tool_enabled("edit_file"):
+            self.tools.register(EditFileTool(allowed_dir=allowed_dir))
+        if _tool_enabled("list_dir"):
+            self.tools.register(ListDirTool(allowed_dir=allowed_dir))
 
         # Shell tool
-        self.tools.register(
-            ExecTool(
-                working_dir=str(self.workspace),
-                timeout=self.exec_config.timeout,
-                restrict_to_workspace=self.restrict_to_workspace,
-                provider=self.provider,
-                brain_config=self.brain_config,
+        if _tool_enabled("exec"):
+            self.tools.register(
+                ExecTool(
+                    working_dir=str(self.workspace),
+                    timeout=self.exec_config.timeout,
+                    restrict_to_workspace=self.restrict_to_workspace,
+                    provider=self.provider,
+                    brain_config=self.brain_config,
+                )
             )
-        )
 
         # Web tools - Re-enabled for single-agent use
-        self.tools.register(BrowserTool(proxy=self.web_proxy))
+        if _tool_enabled("browser"):
+            self.tools.register(BrowserTool(proxy=self.web_proxy))
 
         # Message tool
-        message_tool = MessageTool(send_callback=self.bus.publish_outbound)
-        self.tools.register(message_tool)
+        if _tool_enabled("message"):
+            message_tool = MessageTool(send_callback=self.bus.publish_outbound)
+            self.tools.register(message_tool)
 
         # Task storage path (used by both CronTool and TaskTool)
         from nanobot.config.loader import get_data_dir
         task_storage_path = get_data_dir() / "tasks.json"
 
         # Cron tool (for scheduling)
-        if self.cron_service:
+        if self.cron_service and _tool_enabled("cron"):
             self.tools.register(CronTool(self.cron_service, task_storage_path=task_storage_path))
 
-        # Gmail tool
-        self.tools.register(GmailTool())
+        # Mail tools
+        if _tool_enabled("gmail"):
+            self.tools.register(GmailTool())
+        if _tool_enabled("qq_mail"):
+            self.tools.register(QQMailTool())
 
         # Mac tool
-        self.tools.register(MacTool(confirm_mode=self.mac_confirm_mode))
-        self.tools.register(MacVisionTool(confirm_mode=self.mac_confirm_mode))
+        if _tool_enabled("mac_control"):
+            self.tools.register(MacTool(confirm_mode=self.mac_confirm_mode))
+        if _tool_enabled("mac_vision"):
+            self.tools.register(MacVisionTool(confirm_mode=self.mac_confirm_mode))
 
         # GitHub tool
-        self.tools.register(GitHubTool())
+        if _tool_enabled("github"):
+            self.tools.register(GitHubTool())
 
         # Knowledge tool
-        self.tools.register(KnowledgeTool())
+        if _tool_enabled("knowledge_base"):
+            self.tools.register(KnowledgeTool())
 
         # Memory tool (active management)
-        self.tools.register(MemoryTool(workspace=self.workspace))
+        if _tool_enabled("memory"):
+            self.tools.register(MemoryTool(workspace=self.workspace))
 
         # Provider tool (manage LLM providers)
-        self.tools.register(ProviderTool(registry=self.model_registry))
+        if _tool_enabled("provider"):
+            self.tools.register(ProviderTool(registry=self.model_registry))
+
+        # Weather tool
+        if _tool_enabled("weather"):
+            self.tools.register(WeatherTool())
+
+        # Tavily tool
+        if _tool_enabled("tavily"):
+            self.tools.register(TavilyTool())
+
+        # TianAPI tool
+        if _tool_enabled("tianapi"):
+            self.tools.register(TianAPITool())
+
+        # Tushare tool
+        if _tool_enabled("tushare"):
+            self.tools.register(TushareTool())
+
+        # Feishu tool
+        if _tool_enabled("feishu"):
+            self.tools.register(FeishuTool())
 
         # Skills tool (Plaza/management)
-        self.tools.register(
-            SkillsTool(
-                workspace=self.workspace,
-                search_func=None,
+        if _tool_enabled("skills"):
+            self.tools.register(
+                SkillsTool(
+                    workspace=self.workspace,
+                    search_func=None,
+                )
             )
-        )
 
         # Task tool (named task management)
         task_manager = TaskManager(storage_path=task_storage_path)
         exec_tool = self.tools.get("exec")
-        if exec_tool:
+        if exec_tool and _tool_enabled("task"):
             self.tools.register(TaskTool(task_manager=task_manager, exec_tool=exec_tool))
 
     async def run(self) -> None:
@@ -270,11 +323,26 @@ class AgentLoop:
                     await self.bus.publish_outbound(response)
             except Exception as e:
                 logger.error(f"Error processing message in queue: {e}")
+                
+                # Use origin from metadata if available (safer than split for single-value chat_ids)
+                origin = msg.metadata.get("origin", {})
+                if ":" in msg.chat_id:
+                    fallback_channel = msg.chat_id.split(":", 1)[0]
+                    fallback_chat_id = msg.chat_id.split(":", 1)[1]
+                else:
+                    if msg.channel == "system":
+                        fallback_channel = self.tools_config.error_fallback_channel
+                        fallback_chat_id = self.tools_config.error_fallback_chat_id
+                    else:
+                        fallback_channel = msg.channel
+                        fallback_chat_id = msg.chat_id
+                
                 await self.bus.publish_outbound(
                     OutboundMessage(
-                        channel=msg.channel,
-                        chat_id=msg.chat_id,
-                        content=f"Sorry, I encountered an error: {str(e)}",
+                        channel=origin.get("channel") or fallback_channel,
+                        chat_id=origin.get("chat_id") or fallback_chat_id,
+                        content=f"抱歉，我在处理指令时遇到了错误: {str(e)}",
+                        trace_id=msg.trace_id
                     )
                 )
 
@@ -284,7 +352,24 @@ class AgentLoop:
             lane = CommandLane.BACKGROUND
         else:
             lane = CommandLane.MAIN
-        
+
+        # Busy detection: If MAIN lane is already occupied, notify the user.
+        if lane == CommandLane.MAIN:
+            queue_stats = CommandQueue.get_lane(lane)
+            queued_total = queue_stats.active + len(queue_stats.queue)
+            if queued_total >= self.tools_config.busy_notice_threshold:
+                 # Inform user of busy status (non-blocking) with debounce
+                 now = time.time()
+                 if now - self._last_busy_notice_time > self._busy_debounce_seconds:
+                     self._last_busy_notice_time = now
+                     asyncio.create_task(self.bus.publish_outbound(
+                         OutboundMessage(
+                             channel=msg.channel,
+                             chat_id=msg.chat_id,
+                             content="老板，我正在全力处理您之前的指令，请稍等片刻，新指令已加入队列。"
+                         )
+                     ))
+
         await CommandQueue.enqueue(lane, task)
 
     async def _inner_process_message(self, msg: InboundMessage) -> OutboundMessage | None:
@@ -428,14 +513,27 @@ class AgentLoop:
                 # Wait for all tools to complete
                 results = await asyncio.gather(*tool_coros, return_exceptions=True)
 
+                from nanobot.agent.tools.base import ToolResult, ToolSeverity
+
                 # Add results to messages
                 for tool_call, result in zip(tool_calls, results):
-                    # Handle exceptions from individual tools
                     if isinstance(result, Exception):
                         import traceback
                         tb = traceback.format_exc()
                         logger.error(f"[TraceID: {msg.trace_id}] Tool {tool_call.name} failed with traceback:\n{tb}")
                         result_str = f"Error executing tool {tool_call.name}: {str(result)}"
+                    elif isinstance(result, ToolResult):
+                        result_str = result.output
+                        # Append remedy to help the model recover
+                        if result.remedy:
+                            result_str = f"{result_str}\n\n[系统及工具建议: {result.remedy}]"
+                        # Surface severity / retry / confirmation hints
+                        if result.severity in (ToolSeverity.WARN, ToolSeverity.ERROR, ToolSeverity.FATAL):
+                            result_str = f"[severity:{result.severity}]\n{result_str}"
+                        if result.should_retry:
+                            result_str = f"{result_str}\n\n[系统提示: 建议重试该工具调用，或调整参数后重试。]"
+                        if result.requires_user_confirmation:
+                            result_str = f"{result_str}\n\n[系统提示: 该操作需要用户确认后再执行。]"
                     else:
                         result_str = str(result)
                     
@@ -592,7 +690,7 @@ class AgentLoop:
             try:
                 if i > 0:
                     await self._send_pulse_message(
-                        f"🐈 主模型响应异常，正在尝试备用大脑 ({candidate['name']})，请稍等... 🐾"
+                        f"主模型响应异常，正在尝试备用大脑 ({candidate['name']})，请稍等..."
                     )
 
                 response = await candidate["provider"].chat(

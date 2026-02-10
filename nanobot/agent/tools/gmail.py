@@ -7,7 +7,7 @@ from email.header import decode_header
 from email.message import EmailMessage
 from typing import Any
 
-from nanobot.agent.tools.base import Tool
+from nanobot.agent.tools.base import Tool, ToolResult
 
 from nanobot.config.loader import get_data_dir
 
@@ -72,35 +72,51 @@ class GmailTool(Tool):
         with open(config_path, "w") as f:
             json.dump({"email": email, "password": password}, f)
 
-    async def execute(self, action: str, **kwargs: Any) -> str:
+    async def execute(self, action: str, **kwargs: Any) -> ToolResult:
         if action == "setup":
             email_addr = kwargs.get("setup_email")
             password = kwargs.get("setup_password")
             if not email_addr or not password:
-                return "Error: 'setup_email' and 'setup_password' are required for setup."
+                return ToolResult(
+                    success=False, 
+                    output="Error: 'setup_email' and 'setup_password' are required for setup.",
+                    remedy="请提供 setup_email 和 setup_password 参数。注意：密码应使用 Gmail 应用专用密码 (App Password)。"
+                )
             self._save_config(email_addr, password)
-            return "Gmail configuration saved successfully."
+            return ToolResult(success=True, output="Gmail configuration saved successfully.")
 
         config = self._load_config()
         if not config:
-            return "Error: Gmail not configured. Please action='setup' with setup_email and setup_password (use an App Password)."
+            return ToolResult(
+                success=False, 
+                output="Error: Gmail not configured.",
+                remedy="Gmail 未配置。请先调用 setup 动作：action='setup', setup_email='您的邮箱', setup_password='应用专用密码'"
+            )
 
         try:
             if action == "list":
-                return self._list_emails(config, kwargs.get("limit", 10))
+                output = self._list_emails(config, kwargs.get("limit", 10))
+                return ToolResult(success=True, output=output)
             elif action == "read":
                 email_id = kwargs.get("email_id")
                 if not email_id:
-                    return "Error: 'email_id' is required for 'read' action."
-                return self._read_email(config, email_id)
+                    return ToolResult(success=False, output="Error: 'email_id' is required for 'read' action.", remedy="阅读邮件需要提供 'email_id' 指标。")
+                output = self._read_email(config, email_id)
+                return ToolResult(success=True, output=output)
             elif action == "send":
-                return self._send_email(config, kwargs)
+                output = self._send_email(config, kwargs)
+                return ToolResult(success=True, output=output)
             elif action == "status":
-                return self._status(config)
+                output = self._status(config)
+                return ToolResult(success=True, output=output)
             else:
-                return f"Unknown action: {action}"
+                return ToolResult(success=False, output=f"Unknown action: {action}", remedy="请检查 action 参数是否正确（list, read, send, status, setup）。")
         except Exception as e:
-            return f"Gmail Tool Error: {str(e)}"
+            error_msg = str(e)
+            remedy = None
+            if "authentication failed" in error_msg.lower():
+                remedy = "Gmail 登录失败。请检查您的应用专用密码是否正确，以及是否开启了 IMAP 权限。"
+            return ToolResult(success=False, output=f"Gmail Tool Error: {error_msg}", remedy=remedy)
 
     def _list_emails(self, config, limit):
         mail = imaplib.IMAP4_SSL("imap.gmail.com")

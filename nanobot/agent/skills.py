@@ -8,8 +8,8 @@ from pathlib import Path
 
 # Default builtin skills directory (relative to this file)
 BUILTIN_SKILLS_DIR = Path(__file__).parent.parent / "skills"
-# OpenClaw library skills directory
-OPENCLAW_SKILLS_DIR = Path(__file__).parent.parent.parent / "openclaw" / "skills"
+# Local library skills directory (migrated and slimmed from OpenClaw)
+OPENCLAW_SKILLS_DIR = Path(__file__).parent.parent / "library" / "skills"
 
 
 class SkillsLoader:

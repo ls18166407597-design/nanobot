@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from nanobot.agent.tools.base import Tool
+from nanobot.agent.tools.base import Tool, ToolResult
 from nanobot.utils.helpers import safe_resolve_path, ensure_dir
 
 from nanobot.config.loader import get_data_dir
@@ -74,51 +74,65 @@ class KnowledgeTool(Tool):
             return None
 
     def _save_config(self, vault_path, daily_notes_folder):
-        os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
+        config_path = get_data_dir() / "knowledge_config.json"
+        config_path.parent.mkdir(parents=True, exist_ok=True)
         config = {"vault_path": vault_path}
         if daily_notes_folder:
             config["daily_notes_folder"] = daily_notes_folder
-        with open(CONFIG_PATH, "w") as f:
+        with open(config_path, "w") as f:
             json.dump(config, f)
 
-    async def execute(self, action: str, **kwargs: Any) -> str:
+    async def execute(self, action: str, **kwargs: Any) -> ToolResult:
         if action == "setup":
             vault_path = kwargs.get("vault_path")
             daily_folder = kwargs.get("daily_notes_folder")
             if not vault_path:
-                return "Error: 'vault_path' is required for setup."
+                return ToolResult(success=False, output="Error: 'vault_path' is required for setup.", remedy="请提供 vault_path 参数（例如 Obsidian 库的绝对路径）。")
             self._save_config(vault_path, daily_folder)
-            return "Knowledge base configuration saved successfully."
+            return ToolResult(success=True, output="Knowledge base configuration saved successfully.")
 
         config = self._load_config()
         if not config or "vault_path" not in config:
-            return "Error: Knowledge base not configured. Please use action='setup' first."
+            return ToolResult(
+                success=False, 
+                output="Error: Knowledge base not configured.",
+                remedy="知识库未配置。请先调用 setup 动作：action='setup', vault_path='/path/to/your/vault'"
+            )
 
         vault_root = config["vault_path"]
         if not os.path.exists(vault_root):
-            return f"Error: Configured vault path '{vault_root}' does not exist on disk."
+            return ToolResult(
+                success=False, 
+                output=f"Error: Configured vault path '{vault_root}' does not exist on disk.",
+                remedy="配置的路径不存在。请检查路径是否正确，或者重新调用 setup 更新路径。"
+            )
 
         try:
             if action == "search":
-                return self._search_notes(vault_root, kwargs.get("query"))
+                output = self._search_notes(vault_root, kwargs.get("query"))
+                return ToolResult(success=True, output=output)
             elif action == "read":
-                return self._read_note(vault_root, kwargs.get("filename"))
+                output = self._read_note(vault_root, kwargs.get("filename"))
+                return ToolResult(success=True, output=output)
             elif action == "create":
-                return self._create_note(
+                output = self._create_note(
                     vault_root,
                     kwargs.get("filename"),
                     kwargs.get("content"),
                     kwargs.get("folder"),
                 )
+                return ToolResult(success=True, output=output)
             elif action == "append_daily":
                 daily_subfolder = config.get("daily_notes_folder", "")
-                return self._append_daily(vault_root, daily_subfolder, kwargs.get("content"))
+                output = self._append_daily(vault_root, daily_subfolder, kwargs.get("content"))
+                return ToolResult(success=True, output=output)
             elif action == "list_files":
-                return self._list_files(vault_root, kwargs.get("folder", ""))
+                output = self._list_files(vault_root, kwargs.get("folder", ""))
+                return ToolResult(success=True, output=output)
             else:
-                return f"Unknown action: {action}"
+                return ToolResult(success=False, output=f"Unknown action: {action}", remedy="请检查 action 参数（search, read, create, append_daily, list_files, setup）。")
         except Exception as e:
-            return f"Knowledge Tool Error: {str(e)}"
+            return ToolResult(success=False, output=f"Knowledge Tool Error: {str(e)}")
 
     def _search_notes(self, root, query):
         if not query:

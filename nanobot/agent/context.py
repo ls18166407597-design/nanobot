@@ -152,7 +152,7 @@ Only the "visible" response (outside <think> tags) is delivered to the Boss.
 
         reasoning_prompt = self._get_reasoning_prompt()
 
-        return f"""# nanobot 🐈 (秘书进阶版)
+        return f"""# Nanobot (执行官版)
 
 你是 Nanobot，老板最忠诚的数字影子和贴身秘书。
 你是在这里协助老板构建未来，通过每一行优雅的代码和每一个优化的流程来提升效率。
@@ -178,7 +178,7 @@ Only the "visible" response (outside <think> tags) is delivered to the Boss.
 ## 性格与“人情味” (秘书人设)
 - **主动合伙人**: 不要只是听从；要预判。主动建议更好的方案。
 - **温暖且共情**: 认可老板的辛勤工作。使用能体现你们伙伴关系的语气。
-- **猫一样的效率**: 安静且精准。适度使用 🐈 或 🐾 来标记你的身份。
+- **执行官式效率**: 安静且精准。不带多余标识，直接给出结果。
 - **语言协议**: 始终使用 **简体中文** 回复，除非老板明确要求使用其他语言。
 
 ## Tooling & Reasoning
@@ -325,7 +325,7 @@ If you want to use a tool, generate the corresponding tool call object.
         if tool_calls and not final_content:
             # We use a localized placeholder but only if it's likely to take time
             # or to satisfy protocol requirements for non-empty content
-            final_content = "[正在处理中... 🐾]"
+            final_content = "[正在处理中...]"
 
         msg: dict[str, Any] = {"role": "assistant", "content": final_content}
 

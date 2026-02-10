@@ -6,7 +6,7 @@ from typing import Any
 import aiohttp
 
 from nanobot.agent.skills import SkillsLoader
-from nanobot.agent.tools.base import Tool
+from nanobot.agent.tools.base import Tool, ToolResult
 from nanobot.utils.helpers import safe_resolve_path
 
 
@@ -60,24 +60,35 @@ class SkillsTool(Tool):
         self.loader = SkillsLoader(workspace)
         self.search_func = search_func
 
-    async def execute(self, action: str, **kwargs: Any) -> str:
+    async def execute(self, action: str, **kwargs: Any) -> ToolResult:
         try:
             if action == "list_plaza":
-                return self._list_plaza()
+                output = self._list_plaza()
+                return ToolResult(success=True, output=output)
             elif action == "browse_online":
-                return await self._browse_online(kwargs.get("query", ""))
+                output = await self._browse_online(kwargs.get("query", ""))
+                return ToolResult(success=True, output=output)
             elif action == "search_plaza":
-                return self._search_plaza(kwargs.get("query", ""))
+                output = self._search_plaza(kwargs.get("query", ""))
+                return ToolResult(success=True, output=output)
             elif action == "install":
-                return self._install_skill(kwargs.get("skill_name", ""))
+                output = self._install_skill(kwargs.get("skill_name", ""))
+                # Note: _install_skill returns Error starting string on failure, but we want to be more specific if possible.
+                if output.startswith("Error"):
+                    return ToolResult(success=False, output=output, remedy="请确认技能名称正确，且该技能存在于库（Plaza）中。")
+                return ToolResult(success=True, output=output)
             elif action == "install_url":
-                return await self._install_url(kwargs.get("skill_name", ""), kwargs.get("url", ""))
+                output = await self._install_url(kwargs.get("skill_name", ""), kwargs.get("url", ""))
+                if "Error" in output or "Failed" in output:
+                     return ToolResult(success=False, output=output, remedy="请检查 URL 是否有效（直接指向 SKILL.md），以及网络连接是否正常。")
+                return ToolResult(success=True, output=output)
             elif action == "list_installed":
-                return self._list_installed()
+                output = self._list_installed()
+                return ToolResult(success=True, output=output)
             else:
-                return f"Unknown action: {action}"
+                return ToolResult(success=False, output=f"Unknown action: {action}", remedy="请检查 action 参数（list_plaza, browse_online, search_plaza, install, install_url, list_installed）。")
         except Exception as e:
-            return f"Skills Tool Error: {str(e)}"
+            return ToolResult(success=False, output=f"Skills Tool Error: {str(e)}")
 
     def _list_plaza(self) -> str:
         skills = self.loader.list_skills(filter_unavailable=False)

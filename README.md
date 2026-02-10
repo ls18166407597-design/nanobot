@@ -2,7 +2,7 @@
   <p align="right">
     <a href="README_EN.md">English</a> | <strong>简体中文</strong>
   </p>
-  <h1>nanobot: 极轻量级桌面 AI 秘书 (进阶增加版) 🐈</h1>
+  <h1>nanobot: 极轻量级桌面 AI 秘书 (进阶增加版) </h1>
   <p>
     <strong>由 [HKUDS/nanobot] 深度进化而来的操作系统级助手</strong>
   </p>
@@ -15,13 +15,13 @@
 
 ---
 
-🐈 **nanobot (Secretary Edition)** 是一款具备**高度自主权**和**执行契约**的个人 AI 秘书。它延续了原始项目极简的代码风骨，但在逻辑深度、感知能力和开发者体验 (DX) 上进行了全方位增强。
+ **nanobot (Secretary Edition)** 是一款具备**高度自主权**和**执行契约**的个人 AI 秘书。它延续了原始项目极简的代码风骨，但在逻辑深度、感知能力和开发者体验 (DX) 上进行了全方位增强。
 
 ## ⚖️ 版本对比 (VS Original)
 
 | 特性 | 原始 Nanobot | **秘书进阶版 (Secretary Edition)** |
 | :--- | :--- | :--- |
-| **核心角色** | 通用 AI 助手 | **主动秘书 (🐈 经理-员工执行模型)** |
+| **核心角色** | 通用 AI 助手 | **主动秘书 ( 经理-员工执行模型)** |
 | **行动契约** | 无特定协议 | **透明委派、失败请示、结果验证** |
 | **OS 掌控** | 仅限 Shell 命令行 | **macOS 视觉 (OCR)、系统应用深度管理** |
 | **桌面自动化** | 无 | **集成 Peekaboo，具备鼠标键盘控制权** |
@@ -31,7 +31,8 @@
 ## 🌟 核心行为协议 (Behavioral Protocols)
 
 我们为 Nanobot 注入了严谨的“秘书执行逻辑”：
-- **透明委派 (Transparency)**: 在将任务分配给子智能体时，Nanobot 必须明确告知“谁在做”及“为什么做”。
+- **单代理优先 (Single-Agent First)**: 默认由主代理闭环处理任务，只有在必要时才启用子任务（如长时任务或并行研究）。
+- **透明委派 (Transparency)**: 当确实需要委派子任务时，必须明确告知“谁在做”及“为什么做”。
 - **失败请示 (Ask on Failure)**: 严禁在工具失效时盲目尝试。Nanobot 会主动停下来向老板请示方向。
 - **全中文交互**: 所有的提示词、说明文档及 Agent 话术均实现 100% 汉化。
 - **智能化自愈 (Self-Healing)**: 
@@ -53,19 +54,11 @@
 - **任务执行参数**: `task(action="run", name="日报", working_dir=".", timeout=60, confirm=true)`
 - **后台子任务管理**: `spawn(action="list")` / `spawn(action="status", task_id="...")` / `spawn(action="cancel", task_id="...")`
 
-## 🧩 Antigravity OAuth + 本地桥接（OpenAI-Compatible）
+## 🧩 本地 Gemini 桥接 (Local Bridge)
 
-如果你希望通过 Google OAuth 登录 Antigravity，但仍使用 OpenAI 兼容接口调用（最省事），可用本地桥接：
+Nanobot 默认通过本地 `8045/8046` 端口访问 Gemini 模型（由外部桥接程序或本地应用提供）。
 
-```bash
-# 1) OAuth 登录（生成 antigravity_auth.json）
-python3 scripts/antigravity_oauth_login.py --set-default-model
-
-# 2) 启动桥接服务
-python3 scripts/antigravity_bridge.py --port 8046
-```
-
-配置 nanobot 使用桥接：
+配置 nanobot 使用本地端口：
 ```json
 {
   "providers": {
@@ -113,12 +106,27 @@ python3 scripts/antigravity_bridge.py --port 8046
     - 子任务（Spawned Subagents）现在也接入了主脑的“注册表模型”。即使主线模型（如 GPT-4o）由于配额耗尽失效，子任务也会自动降级到兼容的备用模型执行。
 3.  **动态别名映射**:
     - 支持在 `config.json` 中配置模型别名。例如你可以定义绰号 `qwen-3-8b`，系统会自动将其映射到物理模型 ID `Qwen/Qwen3-8B` 并正确处理对应的授权。
+## 🛡️ 第六阶段：进阶网关稳定性与平台感 (Advanced Gateway & Platform Awareness)
+
+最新的更新聚焦于网关的长期运行稳定性及其对 macOS 环境的深度感知：
+
+1.  **单例运行保护 (Instance Locking)**:
+    - 引入了基于 PID 文件的全局锁机制。现在系统会严格确保同一时间内只有一个 Nanobot 网关在运行，彻底解决了多进程冲突导致的 Token 浪费和状态错乱。
+2.  **增强型应用识别 (AppKit Native)**:
+    - 废弃了不可靠的 AppleScript 探测，全面接入 macOS 原生 `AppKit` 框架。
+    - **Web App 深度识别**: 现在能精准分辨 Safari 和 Chrome 的 "Web App"（PWA），并反馈真实的 Web App ID，帮助 AI 更准确地匹配 Vision 自动化脚本。
+3.  **实时状态反馈 (Zero-Latency Feedback)**:
+    - 重构了 `start.sh`，利用 `tee` 流式输出，让您在启动时能实时看到日志滚动，消除“启动黑盒”感。
+    - 优化了审计日志 (`audit.log`) 的落盘逻辑，确保工具执行记录实时可见，调试更高效。
+
 ## 🖥️ 桌面自动化革命 (Desktop Automation)
 
 Nanobot 现已突破 API 限制，具备**真实的桌面应用控制权**：
 - **智能分发 (Smart Dispatch)**: 自动判断联系人所在的平台 (WeChat / Telegram) 并精准路由消息。
 - **纯键盘流 (Pure Keyboard Flow)**: 甚至不需要鼠标坐标，利用系统级快捷键 (`Cmd+F/K` -> `Paste` -> `Enter`) 实现 100% 稳定的消息发送，彻底解决输入法干扰。
 - **动态通讯录**: 支持通过自然语言 (`Add contact...`) 实时管理联系人映射，无需修改代码。
+- **联网大脑 (Connected Brain)**: 集成 `Tavily` 深度搜索与 `TianAPI` 国内热点，实时掌握瞬息万变的信息。
+- **金融引擎 (Finance Engine)**: 接入 `Tushare` 专业金融数据与飞书自动化报表，实现从数据抓取到办公自动化的闭环。
 
 ## 📦 快速安装
 
@@ -133,26 +141,36 @@ nanobot doctor
 nanobot gateway  # 启动完整网关 (支持 Telegram/飞书)
 ```
 
-## 📁 现代化工作区架构
+## 📁 极简架构 (Separated Architecture)
+
+为了实现“内核稳定、大脑飞跃”，我们将项目重构为三位一体的物理隔离架构：
 
 ```
+nanobot/
+├── nanobot/         # ⚙️ [内核] 不可变引擎源码与基础技能
+├── workspace/       # 🧠 [大脑] 你的个性化 Prompt、Skill、脚本与记忆
+├── .home/           # 📄 [运行] 临时日志与持久化配置存储
+└── docs/            # 📖 [文档] 所有的指南与路线图 (汉化)
+```
+
+##  MODERNIZED WORKSPACE
+```
 workspace/
-├── IDENTITY.md      # 核心使命 (你是谁)
-├── SOUL.md          # 灵魂与性格 (语气、价值观)
+├── IDENTITY.md      # 核心使命与性格 (已合并 SOUL)
 ├── AGENTS.md        # 技术协议 (执行硬规则)
 ├── TOOLS.md         # 工具组合技 (多步流程 Recipes)
 ├── HEARTBEAT.md     # 主动维护区 (秘书日常任务)
-└── memory/          # 动态增长的长短期记忆
+├── scripts/         # [NEW] 自动化业务脚本 (微信/电报等)
+└── tests/           # [NEW] 业务逻辑验证测试
 ```
 
 ## 🤝 项目文档
 
-- ⚙️ **[高级配置指南](docs/CONFIG_GUIDE_CN.md)**
-- 🗺️ **[版本演进路线图](docs/ROADMAP_CN.md)**
-- 🧪 **全项目测试 SOP** (待补充)
-- 🏗️ **[项目分层结构说明](docs/PROJECT_STRUCTURE.md)**
+- ⚙️ **[配置指南](docs/配置指南.md)**
+- 🗺️ **[路线图](docs/路线图.md)**
+- 🏗️ **[项目结构](docs/项目结构.md)**
 
 ---
 <p align="center">
-  <em> 感谢您使用 ✨ nanobot！您的私人高级行政秘书。🐾</em>
+  <em> 感谢您使用 ✨ nanobot！您的私人高级行政秘书。</em>
 </p>

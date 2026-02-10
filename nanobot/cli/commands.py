@@ -163,7 +163,7 @@ This file stores important information that should persist across sessions.
 2. **网页总结**：`总结一下这个网页的内容：https://github.com/HKUDS/nanobot`
 3. **天气查询**：`今天北京天气怎么样？适合出门吗？`
 
-您可以直接在聊天窗口输入这些指令。🐾
+您可以直接在聊天窗口输入这些指令。
 """)
         console.print("  [dim]Created EXAMPLES.md[/dim]")
 
@@ -215,6 +215,43 @@ def logs(
 
 
 # ============================================================================
+# Process Management Helpers
+# ============================================================================
+
+def _check_pid_lock(pid_file: Path) -> None:
+    """Check if another instance is already running via PID file."""
+    from loguru import logger
+    if pid_file.exists():
+        try:
+            old_pid = int(pid_file.read_text().strip())
+            # Check if process is still alive
+            import os
+            import sys
+            os.kill(old_pid, 0)
+            logger.warning(f"Conflict detected: Another instance with PID {old_pid} is running.")
+            console.print(f"[red]Error: Another Nanobot instance (PID {old_pid}) is already running.[/red]")
+            console.print(f"[yellow]If you are sure it is not running, delete {pid_file} and try again.[/yellow]")
+            sys.exit(1)
+        except (ValueError, OSError):
+            # Stale PID file or process not found, safe to overwrite
+            logger.debug(f"Stale PID file found at {pid_file}, ignoring.")
+            pass
+
+def _write_pid_lock(pid_file: Path) -> None:
+    """Write current PID to lock file."""
+    import os
+    pid_file.write_text(str(os.getpid()))
+
+def _remove_pid_lock(pid_file: Path) -> None:
+    """Remove PID lock file."""
+    if pid_file.exists():
+        try:
+            pid_file.unlink()
+        except Exception:
+            pass
+
+
+# ============================================================================
 # Gateway / Server
 # ============================================================================
 
@@ -235,10 +272,15 @@ def gateway(
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
 ):
     """Start the nanobot gateway."""
+    from nanobot.config.loader import get_data_dir, load_config
+    data_dir = get_data_dir()
+    pid_file = data_dir / "gateway.pid"
+    _check_pid_lock(pid_file)
+    _write_pid_lock(pid_file)
+
     from nanobot.agent.loop import AgentLoop
     from nanobot.bus.queue import MessageBus
     from nanobot.channels.manager import ChannelManager
-    from nanobot.config.loader import get_data_dir, load_config
     from nanobot.cron.service import CronService
     from nanobot.cron.types import CronJob
     from nanobot.heartbeat.service import HeartbeatService
@@ -408,12 +450,14 @@ def gateway(
                 agent.run(),
                 channels.start_all(),
             )
-        except KeyboardInterrupt:
+        except (KeyboardInterrupt, asyncio.CancelledError):
             console.print("\nShutting down...")
+        finally:
             heartbeat.stop()
             cron.stop()
             agent.stop()
             await channels.stop_all()
+            _remove_pid_lock(pid_file)
 
     asyncio.run(run())
 

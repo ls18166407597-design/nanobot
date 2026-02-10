@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from nanobot.agent.tools.base import Tool
+from nanobot.agent.tools.base import Tool, ToolResult
 from pathlib import Path
 
 from nanobot.cron.service import CronService
@@ -74,14 +74,25 @@ class CronTool(Tool):
         in_seconds: int | None = None,
         job_id: str | None = None,
         **kwargs: Any,
-    ) -> str:
-        if action == "add":
-            return self._add_job(message, task_name, every_seconds, cron_expr, in_seconds)
-        elif action == "list":
-            return self._list_jobs()
-        elif action == "remove":
-            return self._remove_job(job_id)
-        return f"Unknown action: {action}"
+    ) -> ToolResult:
+        try:
+            if action == "add":
+                output = self._add_job(message, task_name, every_seconds, cron_expr, in_seconds)
+                if output.startswith("Error"):
+                    return ToolResult(success=False, output=output, remedy="请检查参数，确保提供了 message 或 task_name，且有且只有一个时间调度参数。")
+                return ToolResult(success=True, output=output)
+            elif action == "list":
+                output = self._list_jobs()
+                return ToolResult(success=True, output=output)
+            elif action == "remove":
+                output = self._remove_job(job_id)
+                if "not found" in output.lower():
+                    return ToolResult(success=False, output=output, remedy="请检查 job_id 是否正确。")
+                return ToolResult(success=True, output=output)
+            else:
+                return ToolResult(success=False, output=f"Unknown action: {action}")
+        except Exception as e:
+            return ToolResult(success=False, output=f"Cron Tool Error: {str(e)}")
 
     def _add_job(
         self,

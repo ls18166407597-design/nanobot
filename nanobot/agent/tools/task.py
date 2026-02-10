@@ -4,7 +4,7 @@ Task Tool - Agent interface for task management
 from typing import Any
 from loguru import logger
 
-from nanobot.agent.tools.base import Tool
+from nanobot.agent.tools.base import Tool, ToolResult
 from nanobot.agent.task_manager import TaskManager
 from nanobot.agent.tools.shell import ExecTool
 
@@ -75,7 +75,7 @@ class TaskTool(Tool):
         timeout: int | None = None,
         confirm: bool | None = None,
         **kwargs: Any,
-    ) -> str:
+    ) -> ToolResult:
         """Execute task management action."""
         try:
             if action == "create":
@@ -91,37 +91,38 @@ class TaskTool(Tool):
             elif action == "update":
                 return self._update(name, description, command)
             else:
-                return f"Unknown action: {action}"
+                return ToolResult(success=False, output=f"Unknown action: {action}")
+
         except Exception as e:
             logger.error(f"TaskTool error: {e}")
-            return f"❌ Error: {str(e)}"
+            return ToolResult(success=False, output=f"❌ Error: {str(e)}")
     
-    async def _create(self, name: str | None, description: str | None, command: str | None) -> str:
+    async def _create(self, name: str | None, description: str | None, command: str | None) -> ToolResult:
         """Create a new task."""
         if not name:
-            return "❌ Error: 'name' is required for create"
+            return ToolResult(success=False, output="❌ Error: 'name' is required for create")
         if not description:
-            return "❌ Error: 'description' is required for create"
+            return ToolResult(success=False, output="❌ Error: 'description' is required for create")
         if not command:
-            return "❌ Error: 'command' is required for create"
+            return ToolResult(success=False, output="❌ Error: 'command' is required for create")
         
         try:
             task = self._manager.create(name=name, description=description, command=command)
-            return f"✅ 已创建任务 '{task.name}'\n📝 描述: {task.description}\n💻 命令: {task.command}"
+            return ToolResult(success=True, output=f"✅ 已创建任务 '{task.name}'\n📝 描述: {task.description}\n💻 命令: {task.command}")
         except ValueError as e:
-            return f"❌ {str(e)}"
+            return ToolResult(success=False, output=f"❌ {str(e)}")
     
-    def _list(self) -> str:
+    def _list(self) -> ToolResult:
         """List all tasks."""
         tasks = self._manager.list()
         if not tasks:
-            return "📋 暂无任务"
+            return ToolResult(success=True, output="📋 暂无任务")
         
         lines = ["📋 任务列表:"]
         for i, task in enumerate(tasks, 1):
             lines.append(f"{i}. **{task.name}** - {task.description}")
         
-        return "\n".join(lines)
+        return ToolResult(success=True, output="\n".join(lines))
     
     async def _run(
         self,
@@ -129,14 +130,14 @@ class TaskTool(Tool):
         working_dir: str | None = None,
         timeout: int | None = None,
         confirm: bool | None = None,
-    ) -> str:
+    ) -> ToolResult:
         """Run a task by name."""
         if not name:
-            return "❌ Error: 'name' is required for run"
+            return ToolResult(success=False, output="❌ Error: 'name' is required for run")
         
         task = self._manager.get(name)
         if not task:
-            return f"❌ 任务 '{name}' 不存在"
+            return ToolResult(success=False, output=f"❌ 任务 '{name}' 不存在")
         
         logger.info(f"Executing task '{name}': {task.command}")
         
@@ -154,46 +155,52 @@ class TaskTool(Tool):
                 )
             finally:
                 self._exec.timeout = orig_timeout
-            return f"🚀 执行任务 '{name}':\n\n{result}"
+            
+            # ExecTool.execute returns ToolResult
+            if isinstance(result, ToolResult):
+                result.output = f"🚀 执行任务 '{name}':\n\n{result.output}"
+                return result
+            
+            return ToolResult(success=True, output=f"🚀 执行任务 '{name}':\n\n{result}")
         except Exception as e:
-            return f"❌ 执行失败: {str(e)}"
+            return ToolResult(success=False, output=f"❌ 执行失败: {str(e)}")
     
-    def _delete(self, name: str | None) -> str:
+    def _delete(self, name: str | None) -> ToolResult:
         """Delete a task."""
         if not name:
-            return "❌ Error: 'name' is required for delete"
+            return ToolResult(success=False, output="❌ Error: 'name' is required for delete")
         
         if self._manager.delete(name):
-            return f"✅ 已删除任务 '{name}'"
+            return ToolResult(success=True, output=f"✅ 已删除任务 '{name}'")
         else:
-            return f"❌ 任务 '{name}' 不存在"
+            return ToolResult(success=False, output=f"❌ 任务 '{name}' 不存在")
     
-    def _show(self, name: str | None) -> str:
+    def _show(self, name: str | None) -> ToolResult:
         """Show task details."""
         if not name:
-            return "❌ Error: 'name' is required for show"
+            return ToolResult(success=False, output="❌ Error: 'name' is required for show")
         
         task = self._manager.get(name)
         if not task:
-            return f"❌ 任务 '{name}' 不存在"
+            return ToolResult(success=False, output=f"❌ 任务 '{name}' 不存在")
         
-        return (
+        return ToolResult(success=True, output=(
             f"📋 任务详情:\n"
             f"名称: {task.name}\n"
             f"描述: {task.description}\n"
             f"命令: {task.command}\n"
             f"创建时间: {task.created_at}"
-        )
+        ))
     
-    def _update(self, name: str | None, description: str | None, command: str | None) -> str:
+    def _update(self, name: str | None, description: str | None, command: str | None) -> ToolResult:
         """Update a task."""
         if not name:
-            return "❌ Error: 'name' is required for update"
+            return ToolResult(success=False, output="❌ Error: 'name' is required for update")
         
         if not description and not command:
-            return "❌ Error: at least one of 'description' or 'command' is required for update"
+            return ToolResult(success=False, output="❌ Error: at least one of 'description' or 'command' is required for update")
         
         if self._manager.update(name, description=description, command=command):
-            return f"✅ 已更新任务 '{name}'"
+            return ToolResult(success=True, output=f"✅ 已更新任务 '{name}'")
         else:
-            return f"❌ 任务 '{name}' 不存在"
+            return ToolResult(success=False, output=f"❌ 任务 '{name}' 不存在")

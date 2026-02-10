@@ -9,7 +9,7 @@ if TYPE_CHECKING:
     from nanobot.providers.base import LLMProvider
     from nanobot.config.schema import BrainConfig
 
-from nanobot.agent.tools.base import Tool
+from nanobot.agent.tools.base import Tool, ToolResult, ToolSeverity
 from nanobot.utils.helpers import safe_resolve_path
 
 
@@ -69,14 +69,20 @@ class ExecTool(Tool):
             "required": ["command"],
         }
 
-    async def execute(self, command: str, working_dir: str | None = None, **kwargs: Any) -> str:
+    async def execute(self, command: str, working_dir: str | None = None, **kwargs: Any) -> ToolResult:
         cwd = working_dir or self.working_dir or os.getcwd()
         
         # Static guard first
         confirm = bool(kwargs.get("confirm"))
         guard_error = self._static_guard(command, cwd)
         if guard_error and not confirm:
-            return f"{guard_error}. To bypass this safety guard, re-run with 'confirm': true in tool parameters."
+            return ToolResult(
+                success=False,
+                output=f"{guard_error}. To bypass this safety guard, re-run with 'confirm': true in tool parameters.",
+                remedy="如果该命令确实安全，请在参数中增加 'confirm': true。",
+                severity=ToolSeverity.ERROR,
+                requires_user_confirmation=True
+            )
 
         # LLM guard second (if enabled)
         llm_warning: str | None = None
@@ -86,7 +92,12 @@ class ExecTool(Tool):
                 if llm_error.startswith("WARN:"):
                     llm_warning = llm_error
                 else:
-                    return llm_error
+                    return ToolResult(
+                        success=False,
+                        output=llm_error,
+                        remedy="LLM 安全检查未通过。请确保指令不含有害操作，或联系管理员调整安全策略。",
+                        severity=ToolSeverity.ERROR
+                    )
 
         try:
             # Inject current python environment into PATH
@@ -108,7 +119,13 @@ class ExecTool(Tool):
                 stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=self.timeout)
             except asyncio.TimeoutError:
                 process.kill()
-                return f"Error: Command timed out after {self.timeout} seconds"
+                return ToolResult(
+                    success=False,
+                    output=f"Error: Command timed out after {self.timeout} seconds",
+                    remedy="如果该命令需要更多时间，请尝试分步执行或联系管理员调整超时限制。",
+                    severity=ToolSeverity.ERROR,
+                    should_retry=True
+                )
             except asyncio.CancelledError:
                 # CRITICAL: If the AI task is cancelled, we MUST kill the OS process
                 process.kill()
@@ -127,23 +144,32 @@ class ExecTool(Tool):
             if process.returncode != 0:
                 output_parts.append(f"\nExit code: {process.returncode}")
 
-            result = "\n".join(output_parts) if output_parts else "(no output)"
+            output = "\n".join(output_parts) if output_parts else "(no output)"
             if llm_warning:
-                result = f"{llm_warning}\n{result}"
+                output = f"{llm_warning}\n{output}"
             
             # Add safety status if guard is disabled
             if self.brain_config and not self.brain_config.safety_guard:
-                result = f"[Safety Guard: Disabled]\n{result}"
+                output = f"[Safety Guard: Disabled]\n{output}"
 
             # Truncate very long output
             max_len = 10000
-            if len(result) > max_len:
-                result = result[:max_len] + f"\n... (truncated, {len(result) - max_len} more chars)"
+            if len(output) > max_len:
+                output = output[:max_len] + f"\n... (truncated, {len(output) - max_len} more chars)"
 
-            return result
+            return ToolResult(
+                success=process.returncode == 0,
+                output=output,
+                remedy="请检查指令语法、路径权限或环境依赖。" if process.returncode != 0 else None,
+                severity=ToolSeverity.INFO if process.returncode == 0 else ToolSeverity.ERROR
+            )
 
         except Exception as e:
-            return f"Error executing command: {str(e)}"
+            return ToolResult(
+                success=False,
+                output=f"Error executing command: {str(e)}",
+                severity=ToolSeverity.ERROR
+            )
 
     def _static_guard(self, command: str, cwd: str) -> str | None:
         """Best-effort safety guard for potentially destructive commands."""

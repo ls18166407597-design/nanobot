@@ -40,9 +40,17 @@ class MessageBus:
         """Consume the next inbound message (blocks until available)."""
         return await self.inbound.get()
 
-    async def publish_outbound(self, msg: OutboundMessage) -> None:
-        """Publish a response from the agent to channels (with default put)."""
-        await self.outbound.put(msg)
+    async def publish_outbound(self, msg: OutboundMessage, timeout: float = 10.0) -> bool:
+        """
+        Publish a response from the agent to channels.
+        Returns True if published, False if queue is full after timeout.
+        """
+        try:
+            await asyncio.wait_for(self.outbound.put(msg), timeout=timeout)
+            return True
+        except asyncio.TimeoutError:
+            logger.error(f"Outbound queue full, dropped message to {msg.channel}")
+            return False
 
     async def consume_outbound(self) -> OutboundMessage:
         """Consume the next outbound message (blocks until available)."""
@@ -67,12 +75,20 @@ class MessageBus:
                 msg = await asyncio.wait_for(self.outbound.get(), timeout=1.0)
                 subscribers = self._outbound_subscribers.get(msg.channel, [])
                 for callback in subscribers:
-                    try:
-                        await callback(msg)
-                    except Exception as e:
-                        logger.error(f"Error dispatching to {msg.channel}: {e}")
+                    # Execute callbacks as independent tasks to prevent a slow channel from blocking the bus
+                    asyncio.create_task(self._safe_dispatch(callback, msg))
             except asyncio.TimeoutError:
                 continue
+
+    async def _safe_dispatch(self, callback: Callable[[OutboundMessage], Awaitable[None]], msg: OutboundMessage):
+        """Helper to run callback with error handling and timeout."""
+        try:
+            # Add a generic high-level timeout for each channel's send operation (e.g. 60s)
+            await asyncio.wait_for(callback(msg), timeout=60.0)
+        except asyncio.TimeoutError:
+            logger.error(f"Timeout dispatching message to {msg.channel} after 60s")
+        except Exception as e:
+            logger.error(f"Error dispatching message to {msg.channel}: {e}")
 
     def stop(self) -> None:
         """Stop the dispatcher loop."""

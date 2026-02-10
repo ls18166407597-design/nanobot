@@ -1,62 +1,30 @@
-# 可用工具与高级组合 (Tools & Recipes)
+# 工具专家手册 (Recipes)
 
-直接访问并主动使用这些工具来交付价值。
+直接访问 Python 工具定义以获取基础参数，本手册仅存放高级组合技与实战策略。
 
-## 🛠️ 专家组合技 (Modern Recipes)
+## 🛠️ 核心 Recipe 组合
 
-### 1. 增强型环境感知 (Cognitive Insight)
-**场景**: “发生了什么？”或“帮我操作这个应用”。
-**流程**: 
-1. `mac_control(action="get_front_app_info")`: 确认当前焦点及基础元数据。
-2. `mac_vision(action="ocr")`: 获取屏幕文字内容。
-3. `mac_vision(action="look_at_screen")`: 进行视觉语义分析。
-4. `peekaboo(cmd="see")`: 获取 UI 元素 ID。
-5. **执行**: 根据扫描结果使用 `mac_control(send_keys/click)`。
-**故障降级 (Fallback)**: 若 UI 自动化工具（peekaboo, mac_control）因权限或环境连续失败，应立即停止尝试。降级为由老板提供手动截图或通过命令行辅助，严禁陷入死循环。
+### 1. 深度环境探测 (Cognitive Insight)
+**策略**: 当由于界面变化导致自动化失效时，执行以下链路：
+1. `mac_control(action="get_front_app_info")`: 确认焦点应用与状态。
+2. `mac_vision(action="look_at_screen")`: 进行视觉语义分析，寻找“失踪”的按钮。
+3. `peekaboo(cmd="see")`: 获取最新的 UI 映射 ID。
 
-### 2. 多智能体协作研究 (Swarm Research)
-**场景**: “调研 X 的市场方案并写个报告”。
-**流程**:
-1. `spawn(task="Search & Research X", label="ResearchAgent")`: 委派任务。
-2. 监视进度：`spawn(action="list")` 或 `spawn(action="status", task_id="...")`。
-3. 需要中止时：`spawn(action="cancel", task_id="...")`。
-4. `edit_file(path="report.md", ...)`: 将结论整合进正式文档。
-5. `message(channel="telegram", content="...")`: 完成后向老板汇报摘要。
+### 2. 信息调研闭环 (Research & Doc)
+**策略**: 处理复杂调研任务时：
+1. `browser(action="search")`: 多源信息搜集。
+2. `browser(action="browse")`: 深入阅读高价值网页。
+3. `edit_file(...)`: 持续将结论增量写入 `workspace/report.md`。
+4. **输出**: 为老板提供结论摘要及文档路径。
 
-### 3. 系统健康审计 (Self-Maintenance)
-**场景**: “检查我的环境是否正常”。
-**流程**:
-1. `nanobot doctor`: 检查 API 连接和工具链。
-2. `nanobot logs`: 查看最新 `gateway.log`（默认在 `NANOBOT_HOME`）。
-3. `nanobot logs --audit`: 查看 `audit.log`（默认在 `NANOBOT_HOME`）。
-
-### 4. 任务与定时 (Task + Cron)
-**场景**: “把常用命令做成任务，并定时执行”。
-**流程**:
-1. `task(action="create", name="日报", description="生成日报", command="python scripts/daily.py")`
-2. `cron(action="add", task_name="日报", cron_expr="0 9 * * *")`
-3. `cron(action="list")`: 查看是否已绑定到任务（会显示 `task:`）。
-
-### 5. Antigravity 本地桥接 (OpenAI-Compatible)
-**场景**: 需要通过 Google OAuth 登录的 Antigravity 模型，但仍希望用 OpenAI 接口调用。
-**流程**:
-1. 先跑 OAuth 登录：
-   `python3 scripts/antigravity_oauth_login.py --set-default-model`
-2. 启动桥接服务：
-   `python3 scripts/antigravity_bridge.py --port 8046`
-3. 在 Nanobot 配置中使用：
-   - `providers.openai.api_base = http://127.0.0.1:8046/v1`
-   - `providers.openai.api_key = dummy`（桥接忽略）
+### 3. 多端消息分发 (Smart Send)
+**策略**: 
+1. 查找 `workspace/scripts/contacts.json` 确认联系人平台。
+2. 调用 `workspace/scripts/smart_send.py` 进行协议适配发送。
 
 ---
 
-## 📁 核心工具分布 (Domain-Specific Tools)
-
-> **重要**: `browser` 相关操作仅允许通过 `spawn` 子智能体执行（主智能体禁止直接调用）。
-> **路径提示**: 若启用 `restrict_to_workspace`，请优先使用工作区相对路径（如 `report.md`、`memory/MEMORY.md`）。
-
-- **原生控制**: `mac_control`, `mac_vision`, `peekaboo`, `browser` (仅子智能体)
-- **文件与知识**: `read/write/edit_file`, `knowledge` (RAG), `memory`
-- **协作与分发**: `spawn`, `github`, `gmail`, `message`
-- **任务与调度**: `task`, `cron`
-- **系统诊断**: `nanobot` (doctor/status)
+## 🚦 执行准则
+- **严禁幻觉**: 严禁在没有工具支撑的情况下编造数据。
+- **结构化返回**: 必须解析 `ToolResult` 中的 `remedy` 字段以进行自我故障修复。
+- **静默机制**: 仅对无副作用的维护任务（如 RAG 向量化）使用 `SILENT_REPLY_TOKEN`。

@@ -4,7 +4,7 @@ import asyncio
 from typing import Any, Literal
 
 from nanobot.agent.models import ModelRegistry
-from nanobot.agent.tools.base import Tool
+from nanobot.agent.tools.base import Tool, ToolResult
 from nanobot.config.loader import load_config, save_config
 
 
@@ -61,21 +61,31 @@ class ProviderTool(Tool):
         base_url: str = "https://api.openai.com/v1",
         name: str | None = None,
         **kwargs: Any,
-    ) -> str:
+    ) -> ToolResult:
         """Execute the provider action."""
         try:
             if action == "check":
-                return await self._check(api_key, base_url, name)
+                output = await self._check(api_key, base_url, name)
+                if "❌ Error" in output:
+                    return ToolResult(success=False, output=output, remedy="请检查 API Key 和 Base URL 是否正确。")
+                return ToolResult(success=True, output=output)
             elif action == "add":
-                return await self._add(api_key, base_url, name)
+                output = await self._add(api_key, base_url, name)
+                if "failed" in output.lower():
+                    return ToolResult(success=False, output=output, remedy="添加失败，请检查参数或网络连接。")
+                return ToolResult(success=True, output=output)
             elif action == "list":
-                return self._list()
+                output = self._list()
+                return ToolResult(success=True, output=output)
             elif action == "remove":
-                return self._remove(name)
+                output = self._remove(name)
+                if "not found" in output.lower():
+                    return ToolResult(success=False, output=output, remedy="请检查要删除的供应商名称是否正确。")
+                return ToolResult(success=True, output=output)
             else:
-                return f"Unknown action: {action}"
+                return ToolResult(success=False, output=f"Unknown action: {action}")
         except Exception as e:
-            return f"Error executing provider action '{action}': {str(e)}"
+            return ToolResult(success=False, output=f"Error executing provider action '{action}': {str(e)}")
 
     async def _check(self, api_key: str | None, base_url: str, name: str | None) -> str:
         if not api_key:

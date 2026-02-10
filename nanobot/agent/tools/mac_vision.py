@@ -14,7 +14,7 @@ except ImportError:
     AppKit = None
     NSURL = None
 
-from nanobot.agent.tools.base import Tool
+from nanobot.agent.tools.base import Tool, ToolResult
 
 logger = logging.getLogger(__name__)
 
@@ -62,12 +62,12 @@ class MacVisionTool(Tool):
         """Override base property to return instance value."""
         return self._confirm_mode
 
-    async def execute(self, action: str, **kwargs: Any) -> str:
+    async def execute(self, action: str, **kwargs: Any) -> ToolResult:
         if platform.system() != "Darwin":
-            return "Error: This tool only works on macOS."
+            return ToolResult(success=False, output="Error: This tool only works on macOS.")
 
         if not (Quartz and Vision and NSURL):
-            return "Error: 'pyobjc-framework-Vision' and 'pyobjc-framework-Quartz' are required."
+            return ToolResult(success=False, output="Error: 'pyobjc-framework-Vision' and 'pyobjc-framework-Quartz' are required for this tool.")
 
         try:
             # Type safety: Handled by ToolExecutor
@@ -76,7 +76,7 @@ class MacVisionTool(Tool):
             warning: str | None = None
             if action in self._confirm_actions and not confirm:
                 if self.confirm_mode == "require":
-                    return "Confirmation required: re-run with confirm=true."
+                    return ToolResult(success=False, output="Confirmation required: re-run with confirm=true.")
                 if self.confirm_mode == "warn":
                     warning = "Warning: action executed without confirm=true."
 
@@ -93,10 +93,11 @@ class MacVisionTool(Tool):
                     # 不影响主功能的 OCR/截图流程
                     logger.warning(f"Failed to get frontmost app context for vision: {e}")
 
+            result = ""
             if action == "recognize_text":
                 image_path = kwargs.get("image_path")
                 if not image_path:
-                    return "Error: 'image_path' (绝对路径) 是 recognize_text 操作所必需的。"
+                    return ToolResult(success=False, output="Error: 'image_path' (绝对路径) 是 recognize_text 操作所必需的。")
                 result = self._recognize_text(image_path)
             elif action == "capture_screen":
                 result = self._capture_screen(app_name)
@@ -107,15 +108,21 @@ class MacVisionTool(Tool):
                 else:
                     result = self._recognize_text(path)
             else:
-                result = f"Unknown action: {action}"
+                return ToolResult(success=False, output=f"Unknown action: {action}")
 
             # 合并元数据
             final_output = f"{frontmost_info}{result}" if frontmost_info else result
             if warning:
-                return f"{warning}\n{final_output}"
-            return final_output
+                final_output = f"{warning}\n{final_output}"
+            
+            is_error = "Error" in final_output or "Vision Error" in final_output
+            return ToolResult(
+                success=not is_error,
+                output=final_output,
+                remedy="请检查系统屏幕录制权限是否已开启，或图片路径是否有效。" if is_error else None
+            )
         except Exception as e:
-            return f"Mac Vision Error: {str(e)}"
+            return ToolResult(success=False, output=f"Mac Vision Error: {str(e)}")
 
     def _get_window_id(self, app_name: str) -> str | None:
         """Use Quartz to get the window ID of the given app bypass permissions."""
@@ -134,11 +141,10 @@ class MacVisionTool(Tool):
             if app_name_lower in owner or owner in app_name_lower:
                 return str(window.get(Quartz.kCGWindowNumber))
         
-        # 2. Fallback: If it's "Electron" or "Antigravity", they are often the same
-        if "electron" in app_name_lower or "antigravity" in app_name_lower:
+        if "bridge" in app_name_lower or "electron" in app_name_lower:
             for window in window_list:
                 owner = str(window.get(Quartz.kCGWindowOwnerName, "")).lower()
-                if "antigravity" in owner or "electron" in owner:
+                if "bridge" in owner or "electron" in owner:
                     return str(window.get(Quartz.kCGWindowNumber))
 
         # 3. Last resort: just return the first on-screen window (likely frontmost)

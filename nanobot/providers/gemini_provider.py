@@ -3,8 +3,6 @@
 import json
 import os
 from typing import Any, List, Dict, Optional
-
-import google.generativeai as genai
 from loguru import logger
 
 from nanobot.providers.base import LLMProvider, LLMResponse, ToolCallRequest
@@ -26,13 +24,19 @@ class GeminiProvider(LLMProvider):
     ):
         super().__init__(api_key, api_base)
         self.default_model = default_model
+        self._genai = None
         
-        # Configure the SDK
+        # Configure the SDK lazily to avoid import warnings when unused.
+        self._configure_sdk(api_key=api_key, api_base=api_base)
+
+    def _configure_sdk(self, api_key: str | None, api_base: str | None) -> None:
+        genai = self._get_genai()
+
         config_kwargs = {
             "api_key": api_key or os.environ.get("GEMINI_API_KEY"),
             "transport": "rest",
         }
-        
+
         if api_base:
             # The native SDK manages versioning internally. If api_base has /v1 or /v1beta, strip it.
             endpoint = api_base.rstrip("/")
@@ -40,10 +44,21 @@ class GeminiProvider(LLMProvider):
                 endpoint = endpoint[:-3]
             elif endpoint.endswith("/v1beta"):
                 endpoint = endpoint[:-7]
-            
             config_kwargs["client_options"] = {"api_endpoint": endpoint}
-            
+
         genai.configure(**config_kwargs)
+
+    def _get_genai(self):
+        if self._genai is not None:
+            return self._genai
+        try:
+            import google.generativeai as genai  # type: ignore
+        except Exception as e:
+            raise RuntimeError(
+                "google.generativeai is required for GeminiProvider but is not installed."
+            ) from e
+        self._genai = genai
+        return genai
 
     async def chat(
         self,
@@ -133,6 +148,7 @@ class GeminiProvider(LLMProvider):
             prompt = "Continue" # Fallback
 
         # 4. Initialize Model
+        genai = self._get_genai()
         model_instance = genai.GenerativeModel(
             model_name=run_model,
             tools=genai_tools,

@@ -144,19 +144,15 @@ def safe_filename(name: str) -> str:
 
 
 def audit_log(event_type: str, details: dict) -> None:
-    """Record a structured event to the audit log."""
-    import json
-    path = get_audit_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    
-    record = {
-        "timestamp": timestamp(),
+    """
+    Record a structured event to the audit log.
+    Deprecated: Use nanobot.utils.audit.log_event instead.
+    """
+    from nanobot.utils.audit import log_event
+    log_event({
         "type": event_type,
         "details": details
-    }
-    
-    with open(path, "a", encoding="utf-8") as f:
-        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    })
 
 def setup_logging(level: str = "INFO", log_file: Path | None = None) -> None:
     """Setup logging to both console and file using loguru."""

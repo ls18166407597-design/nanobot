@@ -126,6 +126,12 @@ class ToolsConfig(BaseModel):
     exec: ExecToolConfig = Field(default_factory=ExecToolConfig)
     mac: MacToolsConfig = Field(default_factory=MacToolsConfig)
     restrict_to_workspace: bool = False  # If true, restrict all tool access to workspace directory
+    error_fallback_channel: str = "cli"  # Fallback channel when system message has no origin
+    error_fallback_chat_id: str = "direct"  # Fallback chat_id when system message has no origin
+    busy_notice_threshold: int = 1  # Minimum queued/active tasks before showing busy notice
+    busy_notice_debounce_seconds: int = 60  # Debounce seconds for busy notice
+    enabled_tools: list[str] | None = None  # If set, only tools in this list will be registered
+    disabled_tools: list[str] = Field(default_factory=list)  # Tools to skip during registration
 
 
 class BrainConfig(BaseModel):
