@@ -46,6 +46,13 @@ class DiscordConfig(BaseModel):
     intents: int = 37377  # GUILDS + GUILD_MESSAGES + DIRECT_MESSAGES + MESSAGE_CONTENT
 
 
+class ImessageConfig(BaseModel):
+    """iMessage channel configuration using local imsg CLI."""
+
+    enabled: bool = False
+    allow_from: list[str] = Field(default_factory=list)  # Allowed phone numbers or emails
+
+
 class ChannelsConfig(BaseModel):
     """Configuration for chat channels."""
 
@@ -53,6 +60,7 @@ class ChannelsConfig(BaseModel):
     telegram: TelegramConfig = Field(default_factory=TelegramConfig)
     discord: DiscordConfig = Field(default_factory=DiscordConfig)
     feishu: FeishuConfig = Field(default_factory=FeishuConfig)
+    imessage: ImessageConfig = Field(default_factory=ImessageConfig)
 
 
 class AgentDefaults(BaseModel):

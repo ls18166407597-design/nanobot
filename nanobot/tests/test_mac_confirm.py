@@ -10,7 +10,8 @@ async def test_mac_tool_requires_confirm_for_disruptive_actions():
     tool = MacTool(confirm_mode="require")
     # open_app is confirm-gated; should return before checking value
     result = await tool.execute("open_app")
-    assert result == "Confirmation required: re-run with confirm=true."
+    assert result.requires_user_confirmation is True
+    assert "Confirmation required" in result.output
 
 
 @pytest.mark.asyncio
@@ -23,4 +24,5 @@ async def test_mac_vision_requires_confirm_for_capture():
 
     tool = MacVisionTool(confirm_mode="require")
     result = await tool.execute("capture_screen")
-    assert result == "Confirmation required: re-run with confirm=true."
+    assert result.requires_user_confirmation is True
+    assert "Confirmation required" in result.output

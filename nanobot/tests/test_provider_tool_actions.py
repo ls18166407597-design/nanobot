@@ -44,7 +44,7 @@ def test_provider_add(provider_tool, mock_registry, mock_config):
         
         result = asyncio.run(run_test())
         
-        assert "Successfully Added provider 'test_provider'" in result
+        assert "Successfully Added provider 'test_provider'" in result.output
         assert len(mock_config.brain.provider_registry) == 1
         assert mock_config.brain.provider_registry[0]["name"] == "test_provider"
         mock_save.assert_called_once()
@@ -62,7 +62,7 @@ def test_provider_remove(provider_tool, mock_config):
             
         result = asyncio.run(run_test())
         
-        assert "Successfully removed provider 'test_provider'" in result
+        assert "Successfully removed provider 'test_provider'" in result.output
         assert len(mock_config.brain.provider_registry) == 0
         mock_save.assert_called_once()
 
@@ -78,5 +78,5 @@ def test_provider_list(provider_tool, mock_config):
             
         result = asyncio.run(run_test())
         
-        assert "p1 (u1)" in result
-        assert "p2 (u2)" in result
+        assert "p1 (u1)" in result.output
+        assert "p2 (u2)" in result.output

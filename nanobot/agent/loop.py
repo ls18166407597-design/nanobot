@@ -426,6 +426,8 @@ class AgentLoop:
         final_content = None
         seen_tool_call_ids: set[str] = set()
         seen_tool_call_hashes: set[str] = set()
+        last_tool_signature: str | None = None
+        repeat_count: int = 0
 
         while iteration < self.max_iterations:
             iteration += 1
@@ -460,16 +462,36 @@ class AgentLoop:
 
                 # Check for strict loops (repetitive tool calls)
                 # We block if ALL current calls have been seen before in this turn
-                id_loop = len([tid for tid in current_ids if tid in seen_tool_call_ids]) == len(current_ids)
+                # Note: guard against empty id list to avoid false positives
+                id_loop = bool(current_ids) and len([tid for tid in current_ids if tid in seen_tool_call_ids]) == len(current_ids)
                 hash_loop = len([h for h in current_hashes if h in seen_tool_call_hashes]) == len(current_hashes)
-                
+
+                # Track consecutive repetition for loop detection
+                current_signature = ",".join(sorted(current_hashes))
+                if current_signature == last_tool_signature:
+                    repeat_count += 1
+                else:
+                    repeat_count = 1
+                    last_tool_signature = current_signature
+
                 # Allow some progress but block fixed patterns
-                is_strict_loop = iteration > 3 and (id_loop or hash_loop)
+                is_strict_loop = iteration > 3 and repeat_count >= 3 and (id_loop or hash_loop)
 
                 if is_strict_loop:
-                    logger.warning(f"[TraceID: {msg.trace_id}] Loop detected! LLM repeated tool calls. IDs: {current_ids}, Hashes: {current_hashes}. Breaking turn.")
-                    final_content = response.content or "抱歉老板，系统检测到消息处理进入了死循环（重复请求相同内容），已强制中止。建议您简化当前指令或稍后再试。🐾"
-                    break
+                    if iteration < self.max_iterations - 1:
+                        logger.warning(f"[TraceID: {msg.trace_id}] Loop detected! Injecting self-correction prompt.")
+                        messages.append({
+                            "role": "system",
+                            "content": "系统检测到你正在重复执行相同的工具调用且未取得进展。可能原因是之前的工具输出未满足预期。请不要再次尝试相同操作，改用其他思路（例如检查文件是否存在、调整搜索词、或向用户确认需求）。"
+                        })
+                        # Allow one more iteration to recover
+                        seen_tool_call_hashes.clear()
+                        seen_tool_call_ids.clear()
+                        continue
+                    else:
+                        logger.error(f"[TraceID: {msg.trace_id}] Permanent loop detected after retry. Breaking turn.")
+                        final_content = response.content or "抱歉，我陷入了重复执行的循环并未能恢复。请检查当前指令是否超出权限，或提供更明确的需求。"
+                        break
                 
                 # Add to seen
                 for tid in current_ids:
@@ -785,6 +807,10 @@ class AgentLoop:
         # Agent loop (limited for system message handling)
         iteration = 0
         final_content = None
+        seen_tool_call_ids: set[str] = set()
+        seen_tool_call_hashes: set[str] = set()
+        last_tool_signature: str | None = None
+        repeat_count: int = 0
 
         while iteration < self.max_iterations:
             iteration += 1
@@ -794,6 +820,48 @@ class AgentLoop:
             )
 
             if response.has_tool_calls:
+                tool_calls = response.tool_calls
+
+                # Loop detection (system path)
+                current_ids = [tc.id for tc in tool_calls if tc.id]
+                current_hashes = []
+                for tc in tool_calls:
+                    args_json = json.dumps(tc.arguments, sort_keys=True)
+                    tc_hash = hashlib.sha256(f"{tc.name}:{args_json}".encode()).hexdigest()
+                    current_hashes.append(tc_hash)
+
+                id_loop = bool(current_ids) and len([tid for tid in current_ids if tid in seen_tool_call_ids]) == len(current_ids)
+                hash_loop = len([h for h in current_hashes if h in seen_tool_call_hashes]) == len(current_hashes)
+
+                current_signature = ",".join(sorted(current_hashes))
+                if current_signature == last_tool_signature:
+                    repeat_count += 1
+                else:
+                    repeat_count = 1
+                    last_tool_signature = current_signature
+
+                is_strict_loop = iteration > 3 and repeat_count >= 3 and (id_loop or hash_loop)
+
+                if is_strict_loop:
+                    if iteration < self.max_iterations - 1:
+                        logger.warning("System loop detected. Injecting self-correction prompt.")
+                        messages.append({
+                            "role": "system",
+                            "content": "系统检测到你正在重复执行相同的工具调用且未取得进展。可能原因是之前的工具输出未满足预期。请不要再次尝试相同操作，改用其他思路（例如检查文件是否存在、调整搜索词、或向用户确认需求）。"
+                        })
+                        seen_tool_call_hashes.clear()
+                        seen_tool_call_ids.clear()
+                        continue
+                    else:
+                        logger.error("Permanent system loop detected after retry. Breaking turn.")
+                        final_content = response.content or "抱歉，我陷入了重复执行的循环并未能恢复。请检查当前指令是否超出权限，或提供更明确的需求。"
+                        break
+
+                for tid in current_ids:
+                    if tid:
+                        seen_tool_call_ids.add(tid)
+                for h in current_hashes:
+                    seen_tool_call_hashes.add(h)
 
                 tool_call_dicts = [
                     {
@@ -801,18 +869,31 @@ class AgentLoop:
                         "type": "function",
                         "function": {"name": tc.name, "arguments": json.dumps(tc.arguments)},
                     }
-                    for tc in response.tool_calls
+                    for tc in tool_calls
                 ]
                 messages = self.context.add_assistant_message(
                     messages, response.content, tool_call_dicts
                 )
 
-                for tool_call in response.tool_calls:
+                for tool_call in tool_calls:
                     args_str = json.dumps(tool_call.arguments)
                     logger.debug(f"Executing tool: {tool_call.name} with arguments: {args_str}")
-                    result = await self.tools.execute(tool_call.name, tool_call.arguments)
+                    result = await self.executor.execute(tool_call.name, tool_call.arguments)
+                    # Normalize non-ToolResult responses for system path
+                    from nanobot.agent.tools.base import ToolResult
+                    if isinstance(result, ToolResult):
+                        result_str = result.output
+                        if result.remedy:
+                            result_str = f"{result_str}\n\n[系统及工具建议: {result.remedy}]"
+                        if result.should_retry:
+                            result_str = f"{result_str}\n\n[系统提示: 建议重试该工具调用，或调整参数后重试。]"
+                        if result.requires_user_confirmation:
+                            result_str = f"{result_str}\n\n[系统提示: 该操作需要用户确认后再执行。]"
+                    else:
+                        result_str = str(result)
+
                     messages = self.context.add_tool_result(
-                        messages, tool_call.id, tool_call.name, result
+                        messages, tool_call.id, tool_call.name, result_str
                     )
             else:
                 final_content = response.content
@@ -952,6 +1033,18 @@ Conversation History:
 
         logger.debug(f"Attempting to parse tool calls from {len(blocks)} potential blocks")
 
+        def _is_valid_tool_call(obj: dict) -> bool:
+            if not isinstance(obj, dict):
+                return False
+            name = obj.get("name")
+            args = obj.get("arguments")
+            if not isinstance(name, str) or not name:
+                return False
+            if args is None or not isinstance(args, dict):
+                return False
+            # Only allow registered tools to avoid accidental JSON parsing
+            return self.tools.get(name) is not None
+
         for block in blocks:
             block = block.strip()
             if not block:
@@ -974,13 +1067,13 @@ Conversation History:
                     # Process the parsed data
                     if isinstance(data, list):
                         for item in data:
-                            if isinstance(item, dict) and "name" in item:
+                            if _is_valid_tool_call(item):
                                 results.append(ToolCallRequest(
                                     id=f"call_{uuid.uuid4().hex[:8]}",
                                     name=item["name"],
                                     arguments=item.get("arguments", {})
                                 ))
-                    elif isinstance(data, dict) and "name" in data:
+                    elif _is_valid_tool_call(data):
                         results.append(ToolCallRequest(
                             id=f"call_{uuid.uuid4().hex[:8]}",
                             name=data["name"],

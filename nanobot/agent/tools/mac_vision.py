@@ -76,7 +76,11 @@ class MacVisionTool(Tool):
             warning: str | None = None
             if action in self._confirm_actions and not confirm:
                 if self.confirm_mode == "require":
-                    return ToolResult(success=False, output="Confirmation required: re-run with confirm=true.")
+                    return ToolResult(
+                        success=False,
+                        output="Confirmation required: re-run with confirm=true.",
+                        requires_user_confirmation=True,
+                    )
                 if self.confirm_mode == "warn":
                     warning = "Warning: action executed without confirm=true."
 

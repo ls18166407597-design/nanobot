@@ -4,6 +4,8 @@ import json
 import asyncio
 import logging
 
+import pytest
+
 # Ensure we can import nanobot modules
 sys.path.append(os.getcwd())
 
@@ -13,11 +15,22 @@ from nanobot.providers.openai_provider import OpenAIProvider
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# User-provided credentials
-API_BASE = "http://127.0.0.1:8045/v1"
-API_KEY = "sk-71890411c39b49d59e6a55ef378a1861"
-MODEL = "gemini-3-flash"
+API_BASE = os.environ.get("GEMINI_API_BASE", "http://127.0.0.1:8045/v1")
+API_KEY = os.environ.get("GEMINI_API_KEY") or os.environ.get("LOCAL_API_KEY")
+MODEL = os.environ.get("GEMINI_MODEL", "gemini-3-flash")
 
+
+@pytest.fixture
+def provider():
+    if not API_KEY:
+        pytest.skip("GEMINI_API_KEY/LOCAL_API_KEY not set for capability tests.")
+    return OpenAIProvider(
+        api_key=API_KEY,
+        api_base=API_BASE,
+        default_model=MODEL
+    )
+
+@pytest.mark.asyncio
 async def test_max_tokens_parameter(provider):
     logger.info("\n--- Testing max_tokens=65536 Parameter ---")
     try:
@@ -27,6 +40,7 @@ async def test_max_tokens_parameter(provider):
     except Exception as e:
         logger.error(f"❌ max_tokens=65536 rejected: {e}")
 
+@pytest.mark.asyncio
 async def test_task_tool_schema(provider):
     logger.info("\n--- Diagnosing TaskTool Schema (400 Errors) ---")
     
@@ -115,11 +129,9 @@ async def test_task_tool_schema(provider):
             logger.error(f"❌ {name} failed: {e}")
 
 async def main():
-    provider = OpenAIProvider(
-        api_key=API_KEY,
-        api_base=API_BASE,
-        default_model=MODEL
-    )
+    if not API_KEY:
+        raise RuntimeError("GEMINI_API_KEY/LOCAL_API_KEY not set.")
+    provider = OpenAIProvider(api_key=API_KEY, api_base=API_BASE, default_model=MODEL)
 
     await test_max_tokens_parameter(provider)
     await test_task_tool_schema(provider)
