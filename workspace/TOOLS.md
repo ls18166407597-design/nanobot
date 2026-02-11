@@ -35,9 +35,8 @@
 
 默认目录：`.home/tool_configs/`
 
-兼容策略：
-- 读取时优先 `.home/tool_configs/*.json`，自动兼容旧路径 `.home/*.json`
-- 写入时统一写入 `.home/tool_configs/*.json`
+规则：
+- 读取与写入都统一使用 `.home/tool_configs/*.json`
 
 常见配置文件：
 - `gmail` -> `.home/tool_configs/gmail_config.json`
@@ -49,7 +48,3 @@
 - `tianapi` -> `.home/tool_configs/tianapi_config.json`
 - `tushare` -> `.home/tool_configs/tushare_config.json`
 - `feishu` -> `.home/tool_configs/feishu_config.json`
-
-迁移命令（把旧路径配置搬到新目录）：
-- `nanobot migrate-tool-configs`
-- 预览模式：`nanobot migrate-tool-configs --dry-run`

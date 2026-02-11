@@ -60,7 +60,7 @@ class TavilyTool(Tool):
             )
 
         keys = config.get("keys", [])
-        # Support legacy single key format just in case
+        # Support single key format
         if not keys and config.get("key"):
             keys = [config.get("key")]
 

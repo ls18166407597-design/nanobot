@@ -21,7 +21,7 @@ class KnowledgeTool(Tool):
     - Create: Create new notes.
 
     Setup:
-    Requires '.home/tool_configs/knowledge_config.json' (legacy '.home/knowledge_config.json' also supported) with:
+    Requires '.home/tool_configs/knowledge_config.json' with:
     { "vault_path": "/path/to/vault", "daily_notes_folder": "Daily" }
     """
     parameters = {

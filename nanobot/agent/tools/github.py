@@ -20,7 +20,7 @@ class GitHubTool(Tool):
     - Repos: List my repos.
 
     Setup:
-    Requires '.home/tool_configs/github_config.json' (legacy '.home/github_config.json' also supported) with:
+    Requires '.home/tool_configs/github_config.json' with:
     { "token": "ghp_..." }
     """
     parameters = {

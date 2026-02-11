@@ -3,7 +3,7 @@ import json
 import os
 
 def mark_all_as_read():
-    config_path = "/Users/liusong/Downloads/nanobot/.home/qq_mail_config.json"
+    config_path = "/Users/liusong/Downloads/nanobot/.home/tool_configs/qq_mail_config.json"
     with open(config_path, 'r') as f:
         config = json.load(f)
     

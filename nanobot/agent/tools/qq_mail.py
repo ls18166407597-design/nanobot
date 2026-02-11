@@ -24,7 +24,7 @@ class QQMailTool(Tool):
     - Check mailbox status (total count, unread count)
 
     Setup:
-    Requires '.home/tool_configs/qq_mail_config.json' (legacy '.home/qq_mail_config.json' also supported) with:
+    Requires '.home/tool_configs/qq_mail_config.json' with:
     {
         "email": "your_email@qq.com",
         "password": "your_authorization_code"

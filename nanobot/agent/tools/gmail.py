@@ -25,7 +25,7 @@ class GmailTool(Tool):
     - Check mailbox status (total count, unread count)
 
     Setup:
-    Requires '.home/tool_configs/gmail_config.json' (legacy '.home/gmail_config.json' also supported) with:
+    Requires '.home/tool_configs/gmail_config.json' with:
     {
         "email": "your_email@gmail.com",
         "password": "your_app_password"
