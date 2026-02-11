@@ -105,6 +105,48 @@ def get_sessions_path() -> Path:
     return ensure_dir(get_data_path() / "sessions")
 
 
+KNOWN_TOOL_CONFIG_FILES = (
+    "feishu_config.json",
+    "github_config.json",
+    "gmail_config.json",
+    "knowledge_config.json",
+    "qq_mail_config.json",
+    "tavily_config.json",
+    "tianapi_config.json",
+    "tushare_config.json",
+    "weather_config.json",
+)
+
+
+def get_tool_config_dir() -> Path:
+    """Get the tool config directory under NANOBOT_HOME."""
+    return ensure_dir(get_data_path() / "tool_configs")
+
+
+def get_tool_config_path(filename: str, for_write: bool = False) -> Path:
+    """
+    Resolve tool config path with backward compatibility.
+
+    Read behavior:
+    1. .home/tool_configs/<filename>
+    2. .home/<filename> (legacy)
+    3. .home/tool_configs/<filename> (default target)
+
+    Write behavior:
+    - Always write to .home/tool_configs/<filename>
+    """
+    data_dir = get_data_path()
+    new_path = get_tool_config_dir() / filename
+    if for_write:
+        return new_path
+    legacy_path = data_dir / filename
+    if new_path.exists():
+        return new_path
+    if legacy_path.exists():
+        return legacy_path
+    return new_path
+
+
 def get_memory_path(workspace: Path | None = None) -> Path:
     """Get the memory directory within the workspace."""
     ws = workspace or get_workspace_path()

@@ -5,9 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from nanobot.agent.tools.base import Tool, ToolResult
-from nanobot.utils.helpers import safe_resolve_path, ensure_dir
-
-from nanobot.config.loader import get_data_dir
+from nanobot.utils.helpers import ensure_dir, get_tool_config_path, safe_resolve_path
 
 
 class KnowledgeTool(Tool):
@@ -23,7 +21,7 @@ class KnowledgeTool(Tool):
     - Create: Create new notes.
 
     Setup:
-    Requires 'knowledge_config.json' in your nanobot home with:
+    Requires '.home/tool_configs/knowledge_config.json' (legacy '.home/knowledge_config.json' also supported) with:
     { "vault_path": "/path/to/vault", "daily_notes_folder": "Daily" }
     """
     parameters = {
@@ -64,7 +62,7 @@ class KnowledgeTool(Tool):
     }
 
     def _load_config(self):
-        config_path = get_data_dir() / "knowledge_config.json"
+        config_path = get_tool_config_path("knowledge_config.json")
         if not config_path.exists():
             return None
         try:
@@ -74,7 +72,7 @@ class KnowledgeTool(Tool):
             return None
 
     def _save_config(self, vault_path, daily_notes_folder):
-        config_path = get_data_dir() / "knowledge_config.json"
+        config_path = get_tool_config_path("knowledge_config.json", for_write=True)
         config_path.parent.mkdir(parents=True, exist_ok=True)
         config = {"vault_path": vault_path}
         if daily_notes_folder:

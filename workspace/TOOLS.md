@@ -28,3 +28,28 @@
 - **严禁幻觉**: 严禁在没有工具支撑的情况下编造数据。
 - **结构化返回**: 必须解析 `ToolResult` 中的 `remedy` 字段以进行自我故障修复。
 - **静默机制**: 仅对无副作用的维护任务（如 RAG 向量化）使用 `SILENT_REPLY_TOKEN`。
+
+---
+
+## 工具配置文件位置
+
+默认目录：`.home/tool_configs/`
+
+兼容策略：
+- 读取时优先 `.home/tool_configs/*.json`，自动兼容旧路径 `.home/*.json`
+- 写入时统一写入 `.home/tool_configs/*.json`
+
+常见配置文件：
+- `gmail` -> `.home/tool_configs/gmail_config.json`
+- `qq_mail` -> `.home/tool_configs/qq_mail_config.json`
+- `github` -> `.home/tool_configs/github_config.json`
+- `knowledge_base` -> `.home/tool_configs/knowledge_config.json`
+- `weather` -> `.home/tool_configs/weather_config.json`
+- `tavily` -> `.home/tool_configs/tavily_config.json`
+- `tianapi` -> `.home/tool_configs/tianapi_config.json`
+- `tushare` -> `.home/tool_configs/tushare_config.json`
+- `feishu` -> `.home/tool_configs/feishu_config.json`
+
+迁移命令（把旧路径配置搬到新目录）：
+- `nanobot migrate-tool-configs`
+- 预览模式：`nanobot migrate-tool-configs --dry-run`

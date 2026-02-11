@@ -1,12 +1,11 @@
 import json
-import os
 from typing import Any
 
 from github import Auth, Github
 
 from nanobot.agent.tools.base import Tool, ToolResult
 
-from nanobot.config.loader import get_data_dir
+from nanobot.utils.helpers import get_tool_config_path
 
 
 class GitHubTool(Tool):
@@ -21,7 +20,7 @@ class GitHubTool(Tool):
     - Repos: List my repos.
 
     Setup:
-    Requires 'github_config.json' in your nanobot home with:
+    Requires '.home/tool_configs/github_config.json' (legacy '.home/github_config.json' also supported) with:
     { "token": "ghp_..." }
     """
     parameters = {
@@ -58,7 +57,7 @@ class GitHubTool(Tool):
     }
 
     def _load_config(self):
-        config_path = get_data_dir() / "github_config.json"
+        config_path = get_tool_config_path("github_config.json")
         if not config_path.exists():
             return None
         try:
@@ -68,8 +67,9 @@ class GitHubTool(Tool):
             return None
 
     def _save_config(self, token):
-        os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
-        with open(CONFIG_PATH, "w") as f:
+        config_path = get_tool_config_path("github_config.json", for_write=True)
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(config_path, "w") as f:
             json.dump({"token": token}, f)
 
     async def execute(self, action: str, **kwargs: Any) -> ToolResult:

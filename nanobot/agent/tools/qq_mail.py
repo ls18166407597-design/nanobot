@@ -8,7 +8,7 @@ from email.message import EmailMessage
 from typing import Any
 
 from nanobot.agent.tools.base import Tool, ToolResult
-from nanobot.config.loader import get_data_dir
+from nanobot.utils.helpers import get_tool_config_path
 
 
 class QQMailTool(Tool):
@@ -24,7 +24,7 @@ class QQMailTool(Tool):
     - Check mailbox status (total count, unread count)
 
     Setup:
-    Requires 'qq_mail_config.json' in your nanobot home with:
+    Requires '.home/tool_configs/qq_mail_config.json' (legacy '.home/qq_mail_config.json' also supported) with:
     {
         "email": "your_email@qq.com",
         "password": "your_authorization_code"
@@ -56,7 +56,7 @@ class QQMailTool(Tool):
     }
 
     def _load_config(self):
-        config_path = get_data_dir() / "qq_mail_config.json"
+        config_path = get_tool_config_path("qq_mail_config.json")
         if not config_path.exists():
             return None
         try:
@@ -66,7 +66,7 @@ class QQMailTool(Tool):
             return None
 
     def _save_config(self, email, password):
-        config_path = get_data_dir() / "qq_mail_config.json"
+        config_path = get_tool_config_path("qq_mail_config.json", for_write=True)
         config_path.parent.mkdir(parents=True, exist_ok=True)
         with open(config_path, "w") as f:
             json.dump({"email": email, "password": password}, f)

@@ -216,6 +216,64 @@ def logs(
             pass
 
 
+@app.command("migrate-tool-configs")
+def migrate_tool_configs(
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Preview migration without moving files."
+    ),
+):
+    """Migrate tool config files from .home root to .home/tool_configs."""
+    import shutil
+
+    from nanobot.utils.helpers import (
+        KNOWN_TOOL_CONFIG_FILES,
+        get_data_path,
+        get_tool_config_dir,
+    )
+
+    data_dir = get_data_path()
+    target_dir = get_tool_config_dir()
+    moved = 0
+    skipped = 0
+    missing = 0
+
+    table = Table(title="Tool Config Migration")
+    table.add_column("File", style="cyan")
+    table.add_column("From", style="dim")
+    table.add_column("To", style="dim")
+    table.add_column("Status", style="yellow")
+
+    for filename in KNOWN_TOOL_CONFIG_FILES:
+        src = data_dir / filename
+        dst = target_dir / filename
+
+        if not src.exists():
+            missing += 1
+            table.add_row(filename, str(src), str(dst), "missing")
+            continue
+
+        if dst.exists():
+            skipped += 1
+            table.add_row(filename, str(src), str(dst), "exists")
+            continue
+
+        if dry_run:
+            moved += 1
+            table.add_row(filename, str(src), str(dst), "will-move")
+            continue
+
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(src), str(dst))
+        moved += 1
+        table.add_row(filename, str(src), str(dst), "moved")
+
+    console.print(table)
+    mode = "dry-run" if dry_run else "apply"
+    console.print(
+        f"[green]Done[/green] ({mode}): moved={moved}, exists={skipped}, missing={missing}"
+    )
+
+
 # ============================================================================
 # Process Management Helpers
 # ============================================================================

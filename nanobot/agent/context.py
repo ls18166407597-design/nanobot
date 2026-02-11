@@ -124,24 +124,23 @@ Only the "visible" response (outside <think> tags) is delivered to the Boss.
         system = platform.system()
         runtime = f"{'macOS' if system == 'Darwin' else system} {platform.machine()}, Python {platform.python_version()}"
 
-        from nanobot.config.loader import get_data_dir
-        data_dir = get_data_dir()
+        from nanobot.utils.helpers import get_tool_config_path
 
         # Service status check
         gmail_status = (
             " [Configured]"
-            if (data_dir / "gmail_config.json").exists()
+            if get_tool_config_path("gmail_config.json").exists()
             else " [Needs Setup]"
         )
         github_status = (
             " [Configured]"
-            if (data_dir / "github_config.json").exists()
+            if get_tool_config_path("github_config.json").exists()
             or os.environ.get("GITHUB_TOKEN")
             else " [Needs Setup]"
         )
 
         # Knowledge base status
-        kb_config_path = data_dir / "knowledge_config.json"
+        kb_config_path = get_tool_config_path("knowledge_config.json")
         kb_status = " [Needs Setup]"
         if kb_config_path.exists():
             try:

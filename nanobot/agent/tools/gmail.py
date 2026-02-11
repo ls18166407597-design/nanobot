@@ -9,7 +9,7 @@ from typing import Any
 
 from nanobot.agent.tools.base import Tool, ToolResult
 
-from nanobot.config.loader import get_data_dir
+from nanobot.utils.helpers import get_tool_config_path
 
 
 class GmailTool(Tool):
@@ -25,7 +25,7 @@ class GmailTool(Tool):
     - Check mailbox status (total count, unread count)
 
     Setup:
-    Requires 'gmail_config.json' in your nanobot home with:
+    Requires '.home/tool_configs/gmail_config.json' (legacy '.home/gmail_config.json' also supported) with:
     {
         "email": "your_email@gmail.com",
         "password": "your_app_password"
@@ -57,7 +57,7 @@ class GmailTool(Tool):
     }
 
     def _load_config(self):
-        config_path = get_data_dir() / "gmail_config.json"
+        config_path = get_tool_config_path("gmail_config.json")
         if not config_path.exists():
             return None
         try:
@@ -67,7 +67,7 @@ class GmailTool(Tool):
             return None
 
     def _save_config(self, email, password):
-        config_path = get_data_dir() / "gmail_config.json"
+        config_path = get_tool_config_path("gmail_config.json", for_write=True)
         config_path.parent.mkdir(parents=True, exist_ok=True)
         with open(config_path, "w") as f:
             json.dump({"email": email, "password": password}, f)

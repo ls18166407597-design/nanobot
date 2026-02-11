@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 from nanobot.agent.tools.base import Tool, ToolResult
-from nanobot.config.loader import get_data_dir
+from nanobot.utils.helpers import get_tool_config_path
 
 
 class FeishuTool(Tool):
@@ -66,7 +66,7 @@ class FeishuTool(Tool):
     }
 
     def _load_config(self) -> Optional[Dict[str, str]]:
-        config_path = get_data_dir() / "feishu_config.json"
+        config_path = get_tool_config_path("feishu_config.json")
         if not config_path.exists():
             return None
         try:
