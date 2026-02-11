@@ -1,6 +1,5 @@
 import asyncio
 import json
-import time
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -31,6 +30,8 @@ from nanobot.agent.context import SILENT_REPLY_TOKEN
 from nanobot.agent.turn_engine import TurnEngine
 from nanobot.agent.provider_router import ProviderRouter
 from nanobot.agent.tool_bootstrapper import ToolBootstrapper
+from nanobot.agent.message_flow import MessageFlowCoordinator
+from nanobot.agent.system_turn_service import SystemTurnService
 
 
 class AgentLoop:
@@ -102,6 +103,14 @@ class AgentLoop:
             self_correction_prompt=self.SELF_CORRECTION_PROMPT,
             loop_break_reply=self.LOOP_BREAK_REPLY,
         )
+        self.system_turn_service = SystemTurnService(
+            sessions=self.sessions,
+            context=self.context,
+            tools=self.tools,
+            turn_engine=self.turn_engine,
+            filter_reasoning=self._filter_reasoning,
+            is_silent_reply=self._is_silent_reply,
+        )
         
         # Initialize Model Registry
         self.model_registry = ModelRegistry()
@@ -115,8 +124,13 @@ class AgentLoop:
             pulse_callback=self._send_pulse_message,
         )
 
-        self._last_busy_notice_time: float = 0
-        self._busy_debounce_seconds: float = self.tools_config.busy_notice_debounce_seconds
+        self.message_flow = MessageFlowCoordinator(
+            busy_notice_threshold=self.tools_config.busy_notice_threshold,
+            busy_notice_debounce_seconds=self.tools_config.busy_notice_debounce_seconds,
+            error_fallback_channel=self.tools_config.error_fallback_channel,
+            error_fallback_chat_id=self.tools_config.error_fallback_chat_id,
+            publish_outbound=self.bus.publish_outbound,
+        )
 
         self._running = False
         self._register_default_tools()
@@ -231,53 +245,10 @@ class AgentLoop:
                     await self.bus.publish_outbound(response)
             except Exception as e:
                 logger.error(f"Error processing message in queue: {e}")
-                
-                # Use origin from metadata if available (safer than split for single-value chat_ids)
-                origin = msg.metadata.get("origin", {})
-                if ":" in msg.chat_id:
-                    fallback_channel = msg.chat_id.split(":", 1)[0]
-                    fallback_chat_id = msg.chat_id.split(":", 1)[1]
-                else:
-                    if msg.channel == "system":
-                        fallback_channel = self.tools_config.error_fallback_channel
-                        fallback_chat_id = self.tools_config.error_fallback_chat_id
-                    else:
-                        fallback_channel = msg.channel
-                        fallback_chat_id = msg.chat_id
-                
-                await self.bus.publish_outbound(
-                    OutboundMessage(
-                        channel=origin.get("channel") or fallback_channel,
-                        chat_id=origin.get("chat_id") or fallback_chat_id,
-                        content=f"抱歉，我在处理指令时遇到了错误: {str(e)}",
-                        trace_id=msg.trace_id
-                    )
-                )
+                await self.bus.publish_outbound(self.message_flow.build_error_outbound(msg, e))
 
-        # Determine lane based on message type/content
-        # Subagent announcements and system messages go to BACKGROUND
-        if msg.channel == "system":
-            lane = CommandLane.BACKGROUND
-        else:
-            lane = CommandLane.MAIN
-
-        # Busy detection: If MAIN lane is already occupied, notify the user.
-        if lane == CommandLane.MAIN:
-            queue_stats = CommandQueue.get_lane(lane)
-            queued_total = queue_stats.active + len(queue_stats.queue)
-            if queued_total >= self.tools_config.busy_notice_threshold:
-                 # Inform user of busy status (non-blocking) with debounce
-                 now = time.time()
-                 if now - self._last_busy_notice_time > self._busy_debounce_seconds:
-                     self._last_busy_notice_time = now
-                     asyncio.create_task(self.bus.publish_outbound(
-                         OutboundMessage(
-                             channel=msg.channel,
-                             chat_id=msg.chat_id,
-                             content="老板，我正在全力处理您之前的指令，请稍等片刻，新指令已加入队列。"
-                         )
-                     ))
-
+        lane = self.message_flow.lane_for(msg)
+        await self.message_flow.maybe_send_busy_notice(msg, lane)
         await CommandQueue.enqueue(lane, task)
 
     async def _inner_process_message(self, msg: InboundMessage) -> OutboundMessage | None:
@@ -385,75 +356,7 @@ class AgentLoop:
             ))
 
     async def _process_system_message(self, msg: InboundMessage) -> OutboundMessage | None:
-        """
-        Process a system message (e.g., cron signals).
-
-        The chat_id field contains "original_channel:original_chat_id" to route
-        the response back to the correct destination.
-        """
-        logger.info(f"Processing system message from {msg.sender_id}")
-
-        # Parse origin from metadata (preferred) or chat_id
-        if msg.metadata and "origin" in msg.metadata:
-            origin = msg.metadata["origin"]
-            origin_channel = origin.get("channel", "cli")
-            origin_chat_id = origin.get("chat_id", "direct")
-        elif ":" in msg.chat_id:
-            parts = msg.chat_id.split(":", 1)
-            origin_channel = parts[0]
-            origin_chat_id = parts[1]
-        else:
-            # Fallback
-            origin_channel = "cli"
-            origin_chat_id = msg.chat_id
-
-        # Use the origin session for context
-        session_key = f"{origin_channel}:{origin_chat_id}"
-        session = self.sessions.get_or_create(session_key)
-
-        # Update tool contexts
-        message_tool = self.tools.get("message")
-        if isinstance(message_tool, MessageTool):
-            message_tool.set_context(origin_channel, origin_chat_id)
-
-        cron_tool = self.tools.get("cron")
-        if isinstance(cron_tool, CronTool):
-            cron_tool.set_context(origin_channel, origin_chat_id)
-
-        # Build messages with the announce content
-        messages = self.context.build_messages(
-            history=session.get_history(),
-            current_message=msg.content,
-            channel=origin_channel,
-            chat_id=origin_chat_id,
-        )
-
-        final_content = await self.turn_engine.run(
-            messages=messages,
-            trace_id=msg.trace_id,
-            parse_calls_from_text=False,
-            include_severity=False,
-            parallel_tool_exec=False,
-            compact_after_tools=False,
-        )
-
-        if final_content is None:
-            final_content = "Background task completed."
-
-        # Save to session (mark as system message in history)
-        final_content = self._filter_reasoning(str(final_content))
-        if self._is_silent_reply(final_content):
-            session.add_message("user", f"[System: {msg.sender_id}] {msg.content}")
-            self.sessions.save(session)
-            return None
-
-        session.add_message("user", f"[System: {msg.sender_id}] {msg.content}")
-        session.add_message("assistant", final_content)
-        self.sessions.save(session)
-
-        return OutboundMessage(
-            channel=origin_channel, chat_id=origin_chat_id, content=final_content
-        )
+        return await self.system_turn_service.process(msg)
 
     async def process_direct(
         self,
