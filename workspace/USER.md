@@ -18,7 +18,7 @@
 - **联网策略**: 允许主代理直接调用联网工具，确保信息的实时性。
  
 ## 📂 数据索引 (Data Index)
-- **通讯录数据**: `workspace/scripts/contacts.json`
+- **通讯录数据**: `workspace/scripts/contacts/contacts.json`
   - 备注：此文件记录了所有 Telegram 和微信联系人的别名、实名及 App 映射。
 - **账号与环境感知**:
   - 指令：机器人执行桌面自动化时，必须优先探测当前登录账号。如果环境反馈与指令要求账号不符，应执行切换动作并再次核实。

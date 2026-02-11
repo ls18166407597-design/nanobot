@@ -5,8 +5,12 @@ import argparse
 import subprocess
 from pathlib import Path
 
-# Load contacts
-CONTACTS_FILE = Path(__file__).parent / "contacts.json"
+SCRIPTS_ROOT = Path(__file__).resolve().parent.parent
+CONTACTS_FILE = SCRIPTS_ROOT / "contacts" / "contacts.json"
+APP_SCRIPT_DIR_MAP = {
+    "telegram": SCRIPTS_ROOT / "telegram",
+    "wechat": SCRIPTS_ROOT / "wechat",
+}
 
 def load_contacts():
     if not CONTACTS_FILE.exists():
@@ -62,7 +66,7 @@ def main_with_args(args):
     app_name = target["app"]
     app_lower = app_name.lower()
     
-    # Dynamic Lookup Strategy
+    # Dynamic lookup strategy per app domain
     potential_filenames = [
         f"automate_{app_lower}_keyboard_final.py",
         f"automate_{app_lower}_keyboard.py",
@@ -70,14 +74,23 @@ def main_with_args(args):
     ]
     
     script_path = None
+    app_dir = APP_SCRIPT_DIR_MAP.get(app_lower, SCRIPTS_ROOT)
     for fname in potential_filenames:
-        test_path = Path(__file__).parent / fname
+        test_path = app_dir / fname
         if test_path.exists():
             script_path = test_path
             break
+
+    # Final fallback: search whole scripts tree for matching filename
+    if not script_path:
+        for fname in potential_filenames:
+            matches = list(SCRIPTS_ROOT.rglob(fname))
+            if matches:
+                script_path = matches[0]
+                break
             
     if not script_path:
-        print(f"❌ Error: No automation script found for '{app_name}' in {Path(__file__).parent}")
+        print(f"❌ Error: No automation script found for '{app_name}' under {SCRIPTS_ROOT}")
         print(f"Expected one of: {', '.join(potential_filenames)}")
         sys.exit(1)
 

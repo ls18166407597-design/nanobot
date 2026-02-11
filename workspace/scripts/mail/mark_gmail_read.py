@@ -1,9 +1,11 @@
 import imaplib
 import json
 import os
+from pathlib import Path
 
 def mark_all_as_read():
-    config_path = os.path.expanduser("../.home/gmail_config.json")
+    home_dir = Path(os.getenv("NANOBOT_HOME", Path.cwd() / ".home")).expanduser()
+    config_path = home_dir / "tool_configs" / "gmail_config.json"
     with open(config_path, 'r') as f:
         config = json.load(f)
     

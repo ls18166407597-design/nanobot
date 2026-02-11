@@ -22,19 +22,13 @@ description: {description}
 @app.command("skill")
 def new_skill(name: str, description: str = "A new skill"):
     """Create a new skill."""
-    # Assume we are in a workspace or project root
-    # Try to find .agent/skills or nanobot/skills
-    
-    # Simple heuristic: if .agent/skills exists, use it. Else check nanobot/skills.
-    # Otherwise create in current dir/skills
-    
-    target_dir = Path(".agent/skills")
+    # Canonical target: workspace skills.
+    # Keep compatibility with existing ".agent/skills" projects.
+    target_dir = Path("workspace/skills")
+    if not target_dir.exists() and Path(".agent/skills").exists():
+        target_dir = Path(".agent/skills")
     if not target_dir.exists():
-        target_dir = Path("nanobot/skills")
-    
-    if not target_dir.exists():
-        target_dir = Path("skills")
-        target_dir.mkdir(exist_ok=True)
+        target_dir.mkdir(parents=True, exist_ok=True)
         
     skill_dir = target_dir / name
     if skill_dir.exists():

@@ -6,8 +6,8 @@
 这是系统的底层基础设施，应保持“洁净”和“通用”。
 - **`nanobot/agent/`**: 思考循环与上下文管理代码。
 - **`nanobot/tools/`**: 核心工具定义（代码库）。
-- **`nanobot/skills/`**: **仅限**系统核心技能（如 `summarize`, `cron`, `auth`）。
-- **`nanobot/library/`**: 瘦身后的技能库（只读，供安装参考）。
+- **`nanobot/library/skills/`**: 核心技能主库（运行时 canonical source）。
+- **`nanobot/skills/`**: 兼容层（legacy fallback），不再作为新增技能主入口。
 - **`nanobot/maintenance/`**: 系统维护脚本。
 
 ## 2. 大脑工作区 (Brain/Workspace) - `workspace/`
@@ -24,7 +24,7 @@
 
 ## ❌ 严禁行为 (Anti-Patterns)
 1. **禁止**在根目录放置业务脚本（请放入 `workspace/scripts/`）。
-2. **禁止**修改 `nanobot/skills/` 下已被工作区覆盖的同名技能。
+2. **禁止**将新增技能写入 `nanobot/skills/`（请写入 `workspace/skills/` 或 `nanobot/library/skills/`）。
 3. **禁止**在 `nanobot/` 核心代码库中硬编码个人配置。
 
 ## 4. 核心契约 (Core Contracts)

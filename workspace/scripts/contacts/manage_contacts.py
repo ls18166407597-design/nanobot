@@ -6,6 +6,11 @@ from pathlib import Path
 
 # Load contacts
 CONTACTS_FILE = Path(__file__).parent / "contacts.json"
+SCRIPTS_ROOT = Path(__file__).resolve().parent.parent
+APP_SCRIPT_DIR_MAP = {
+    "telegram": SCRIPTS_ROOT / "telegram",
+    "wechat": SCRIPTS_ROOT / "wechat",
+}
 
 def load_contacts():
     if not CONTACTS_FILE.exists():
@@ -55,8 +60,6 @@ def remove_contact(contacts, alias):
 def validate_contacts(contacts):
     print("🔍 Validating contacts.json...")
     errors = 0
-    from pathlib import Path
-    script_dir = Path(__file__).parent
     
     for alias, info in contacts.items():
         entry_errors = []
@@ -74,7 +77,12 @@ def validate_contacts(contacts):
                 f"automate_{app_lower}_keyboard.py",
                 f"automate_{app_lower}.py"
             ]
-            if not any((script_dir / s).exists() for s in potential_scripts):
+            app_dir = APP_SCRIPT_DIR_MAP.get(app_lower, SCRIPTS_ROOT)
+            exists = any((app_dir / s).exists() for s in potential_scripts)
+            if not exists:
+                # Fallback global scan for non-standard app domains
+                exists = any(list(SCRIPTS_ROOT.rglob(s)) for s in potential_scripts)
+            if not exists:
                 entry_errors.append(f"No automation script found for app '{app}'")
             
         if entry_errors:

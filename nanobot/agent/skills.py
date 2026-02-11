@@ -6,10 +6,10 @@ import re
 import shutil
 from pathlib import Path
 
-# Default builtin skills directory (relative to this file)
-BUILTIN_SKILLS_DIR = Path(__file__).parent.parent / "skills"
-# Local library skills directory (migrated and slimmed from OpenClaw)
-OPENCLAW_SKILLS_DIR = Path(__file__).parent.parent / "library" / "skills"
+# Canonical core skills directory (single source of truth)
+CORE_SKILLS_DIR = Path(__file__).parent.parent / "library" / "skills"
+# Legacy compatibility directory (kept for transition only)
+LEGACY_SKILLS_DIR = Path(__file__).parent.parent / "skills"
 
 
 class SkillsLoader:
@@ -23,13 +23,15 @@ class SkillsLoader:
     def __init__(
         self,
         workspace: Path,
-        builtin_skills_dir: Path | None = None,
-        library_skills_dir: Path | None = None,
+        core_skills_dir: Path | None = None,
+        legacy_skills_dir: Path | None = None,
     ):
         self.workspace = workspace
         self.workspace_skills = workspace / "skills"
-        self.builtin_skills = builtin_skills_dir or BUILTIN_SKILLS_DIR
-        self.library_skills = library_skills_dir or OPENCLAW_SKILLS_DIR
+        self.core_skills = core_skills_dir or CORE_SKILLS_DIR
+        self.legacy_skills = legacy_skills_dir or LEGACY_SKILLS_DIR
+        # Keep alias for older callers.
+        self.library_skills = self.core_skills
 
     def list_skills(self, filter_unavailable: bool = True) -> list[dict[str, str]]:
         """
@@ -53,27 +55,27 @@ class SkillsLoader:
                             {"name": skill_dir.name, "path": str(skill_file), "source": "workspace"}
                         )
 
-        # Built-in skills
-        if self.builtin_skills and self.builtin_skills.exists():
-            for skill_dir in self.builtin_skills.iterdir():
+        # Canonical core skills
+        if self.core_skills and self.core_skills.exists():
+            for skill_dir in self.core_skills.iterdir():
                 if skill_dir.is_dir():
                     skill_file = skill_dir / "SKILL.md"
                     if skill_file.exists() and not any(s["name"] == skill_dir.name for s in skills):
                         skills.append(
-                            {"name": skill_dir.name, "path": str(skill_file), "source": "builtin"}
+                            {"name": skill_dir.name, "path": str(skill_file), "source": "core"}
                         )
 
-        # Library skills (OpenClaw)
-        if self.library_skills and self.library_skills.exists():
-            for skill_dir in self.library_skills.iterdir():
+        # Legacy project skills: fallback only, lower priority than core/workspace
+        if self.legacy_skills and self.legacy_skills.exists():
+            for skill_dir in self.legacy_skills.iterdir():
                 if skill_dir.is_dir():
                     skill_file = skill_dir / "SKILL.md"
                     if skill_file.exists() and not any(s["name"] == skill_dir.name for s in skills):
                         skills.append(
                             {
-                                "name": f"lib:{skill_dir.name}",
+                                "name": skill_dir.name,
                                 "path": str(skill_file),
-                                "source": "library",
+                                "source": "legacy_core",
                             }
                         )
 
@@ -97,19 +99,20 @@ class SkillsLoader:
         if workspace_skill.exists():
             return workspace_skill.read_text(encoding="utf-8")
 
-        # Check library
-        if name.startswith("lib:"):
-            lib_name = name[4:]
-            if self.library_skills:
-                lib_skill = self.library_skills / lib_name / "SKILL.md"
-                if lib_skill.exists():
-                    return lib_skill.read_text(encoding="utf-8")
+        # Compatibility: old names may include `lib:` prefix.
+        normalized = name[4:] if name.startswith("lib:") else name
 
-        # Check built-in
-        if self.builtin_skills:
-            builtin_skill = self.builtin_skills / name / "SKILL.md"
-            if builtin_skill.exists():
-                return builtin_skill.read_text(encoding="utf-8")
+        # Check canonical core
+        if self.core_skills:
+            core_skill = self.core_skills / normalized / "SKILL.md"
+            if core_skill.exists():
+                return core_skill.read_text(encoding="utf-8")
+
+        # Check legacy fallback
+        if self.legacy_skills:
+            legacy_skill = self.legacy_skills / normalized / "SKILL.md"
+            if legacy_skill.exists():
+                return legacy_skill.read_text(encoding="utf-8")
 
         return None
 
@@ -150,12 +153,7 @@ class SkillsLoader:
             return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
         lines = ["<skills>"]
-        library_count = 0
         for s in all_skills:
-            if s["source"] == "library":
-                library_count += 1
-                continue
-
             name = escape_xml(s["name"])
             path = s["path"]
             desc = escape_xml(self._get_skill_description(s["name"]))
@@ -175,12 +173,6 @@ class SkillsLoader:
 
             lines.append("  </skill>")
         lines.append("</skills>")
-
-        if library_count > 0:
-            lines.append(
-                f"\n注意：在 'lib:*' 命名空间中还有 {library_count} 个额外的库技能可用。 "
-                "使用 'skills' 工具配合 action='list_plaza' 来探索它们。"
-            )
 
         return "\n".join(lines)
 

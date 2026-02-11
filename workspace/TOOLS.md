@@ -24,8 +24,8 @@
 
 ### 3. 多端消息分发 (Smart Send)
 **策略**: 
-1. 查找 `workspace/scripts/contacts.json` 确认联系人平台。
-2. 调用 `workspace/scripts/smart_send.py` 进行协议适配发送。
+1. 查找 `workspace/scripts/contacts/contacts.json` 确认联系人平台。
+2. 调用 `workspace/scripts/dispatch/smart_send.py` 进行协议适配发送。
 
 ---
 

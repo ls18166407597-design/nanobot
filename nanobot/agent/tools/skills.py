@@ -92,13 +92,13 @@ class SkillsTool(Tool):
 
     def _list_plaza(self) -> str:
         skills = self.loader.list_skills(filter_unavailable=False)
-        lib_skills = [s for s in skills if s["source"] == "library"]
-        if not lib_skills:
-            return "No skills found in the library/plaza."
+        core_skills = [s for s in skills if s["source"] == "core"]
+        if not core_skills:
+            return "No skills found in the core skill plaza."
 
         output = ["--- OpenClaw Skill Plaza ---"]
-        for s in lib_skills:
-            name = s["name"].replace("lib:", "")
+        for s in core_skills:
+            name = s["name"]
             desc = self.loader._get_skill_description(s["name"])
             output.append(f"- {name}: {desc}")
         return "\n".join(output)
@@ -110,12 +110,11 @@ class SkillsTool(Tool):
         query = query.lower()
         matches = []
         for s in skills:
-            if s["source"] == "library":
+            if s["source"] == "core":
                 name = str(s["name"])
                 desc = self.loader._get_skill_description(name).lower()
-                clean_name = name.replace("lib:", "")
                 if query in name.lower() or query in desc:
-                    matches.append(f"- {clean_name}: {desc}")
+                    matches.append(f"- {name}: {desc}")
 
         if not matches:
             return f"No skills matching '{query}' found in the plaza."
@@ -127,7 +126,7 @@ class SkillsTool(Tool):
 
         try:
             # Normalize and validate name (prevent traversal)
-            clean_name = skill_name.replace("lib:", "")
+            clean_name = skill_name
             lib_path = safe_resolve_path(self.loader.library_skills / clean_name, self.loader.library_skills)
             dest_path = safe_resolve_path(self.loader.workspace_skills / clean_name, self.loader.workspace_skills)
 
@@ -181,7 +180,7 @@ class SkillsTool(Tool):
 
     def _list_installed(self) -> str:
         skills = self.loader.list_skills(filter_unavailable=False)
-        installed = [s for s in skills if s["source"] in ["workspace", "builtin"]]
+        installed = [s for s in skills if s["source"] in ["workspace", "core", "legacy_core"]]
         if not installed:
             return "No skills found in workspace or built-in directories."
 

@@ -2,8 +2,10 @@ import random
 import subprocess
 import time
 import sys
-import os
 from pathlib import Path
+
+SCRIPTS_ROOT = Path(__file__).resolve().parent.parent
+SMART_SEND = SCRIPTS_ROOT / "dispatch" / "smart_send.py"
 
 def run_command(cmd):
     print(f"🚀 Executing: {' '.join(cmd)}")
@@ -26,7 +28,7 @@ def main():
     msg1 = random.choice(msgs)
     print(f"\n👤 Account [生如夏花] -> Message: {msg1}")
     cmd1 = [
-        sys.executable, "scripts/smart_send.py", 
+        sys.executable, str(SMART_SEND),
         "--all", "DUMMY_CONTACT", msg1, 
         "--account", "生如夏花", 
         "--app", "Telegram"
@@ -37,7 +39,7 @@ def main():
     msg2 = random.choice(msgs)
     print(f"\n👤 Account [小李] -> Message: {msg2}")
     cmd2 = [
-        sys.executable, "scripts/smart_send.py", 
+        sys.executable, str(SMART_SEND),
         "--all", "DUMMY_CONTACT", msg2, 
         "--account", "小李", 
         "--app", "Telegram", 

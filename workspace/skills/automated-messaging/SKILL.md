@@ -28,38 +28,38 @@ graph TD
 
 **单个联系人:**
 ```bash
-python3 scripts/smart_send.py "别名" "消息内容"
+python3 scripts/dispatch/smart_send.py "别名" "消息内容"
 ```
 
 **批量发送(所有联系人):**
 ```bash
-python3 scripts/smart_send.py --all "消息内容"
+python3 scripts/dispatch/smart_send.py --all "消息内容"
 ```
 
 **批量发送(筛选 App):**
 ```bash
 # 只给 Telegram 联系人发送
-python3 scripts/smart_send.py --all "消息内容" --app Telegram
+python3 scripts/dispatch/smart_send.py --all "消息内容" --app Telegram
 ```
 
 **使用特定账号:**
 ```bash
-python3 scripts/smart_send.py --all "消息内容" --account "小李"
+python3 scripts/dispatch/smart_send.py --all "消息内容" --account "小李"
 ```
 
 ### 2. 获取/管理通讯录 (Contact Management)
 读取或修改本地 `contacts.json` 数据库。
 ```bash
 # 列出所有已存联系人(首选步骤)
-python3 scripts/manage_contacts.py list
+python3 scripts/contacts/manage_contacts.py list
 
 # 新增联系人映射
-python3 scripts/manage_contacts.py add "别名" "App内实名" WeChat/Telegram
+python3 scripts/contacts/manage_contacts.py add "别名" "App内实名" WeChat/Telegram
 ```
 
 ## 📂 数据架构 (Data Architecture)
 
-- **核心数据库**: `scripts/contacts.json` (记录别名与 App 的映射关系)。
+- **核心数据库**: `scripts/contacts/contacts.json` (记录别名与 App 的映射关系)。
 - **路径索引**: 详细的数据位置已在 `USER.md` 的 **## 📂 数据索引** 中建立常驻链接。
 
 ---

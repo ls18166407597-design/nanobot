@@ -2,6 +2,7 @@ import json
 import os
 import sys
 import time
+import subprocess
 from pathlib import Path
 from contextlib import contextmanager
 
@@ -48,7 +49,9 @@ def get_home_dir():
     return current_path / ".home"
 
 # Load contacts
-CONTACTS_FILE = Path("scripts/contacts.json")
+SCRIPTS_ROOT = Path(__file__).resolve().parent.parent
+CONTACTS_FILE = SCRIPTS_ROOT / "contacts" / "contacts.json"
+AUTOMATE_SCRIPT = Path(__file__).resolve().parent / "automate_telegram_blind.py"
 
 def load_contacts():
     with open(CONTACTS_FILE, "r", encoding="utf-8") as f:
@@ -56,7 +59,7 @@ def load_contacts():
 
 def run_send(contact_name, message, switch=False, close=False):
     cmd = [
-        sys.executable, "scripts/automate_telegram_blind.py",
+        sys.executable, str(AUTOMATE_SCRIPT),
         "--contact", contact_name,
         "--message", message
     ]
