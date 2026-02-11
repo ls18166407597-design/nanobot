@@ -89,7 +89,7 @@ class TurnEngine:
                 per_tool_limits=per_tool_limits,
             )
             if budget_reason:
-                final_content = self._build_forced_summary(messages=messages, reason=budget_reason)
+                final_content = await self._finalize_after_budget(messages=messages, reason=budget_reason)
                 break
 
             is_strict_loop, current_ids, current_hashes, last_tool_signature, repeat_count = self._evaluate_loop_repetition(
@@ -146,7 +146,7 @@ class TurnEngine:
                 await self._compact_messages_if_needed(messages, trace_id)
 
         if final_content is None:
-            final_content = self._build_forced_summary(messages=messages, reason="已达到本轮工具迭代上限")
+            final_content = await self._finalize_after_budget(messages=messages, reason="已达到本轮工具迭代上限")
         return final_content
 
     def _inject_self_correction(self, messages: list[dict[str, Any]]) -> None:
@@ -212,7 +212,7 @@ class TurnEngine:
         for name in tool_name_list:
             tool_stats[name] = tool_stats.get(name, 0) + 1
 
-        lines = [f"本轮已停止继续试探：{reason}。"]
+        lines = [f"模型已超过工具调用限制，本轮已停止继续试探：{reason}。"]
         if tool_stats:
             stats_text = "，".join(f"{name}×{count}" for name, count in sorted(tool_stats.items()))
             lines.append(f"本轮工具调用统计：{stats_text}")
@@ -224,6 +224,28 @@ class TurnEngine:
             lines.append(f"最近步骤：{' -> '.join(recent_tools)}")
 
         return "\n".join(lines)
+
+    async def _finalize_after_budget(self, *, messages: list[dict[str, Any]], reason: str) -> str:
+        fallback = self._build_forced_summary(messages=messages, reason=reason)
+        try:
+            summary_prompt = (
+                "你已经触发工具调用预算限制，禁止再调用任何工具。"
+                f"限制原因：{reason}。"
+                "请基于现有工具结果，直接输出给用户的最终总结："
+                "1) 已完成内容 2) 当前明确结论 3) 未完成或不确定项。"
+                "要求：简洁、可执行，不要输出内部推理。"
+            )
+            summary_messages = list(messages) + [{"role": "system", "content": summary_prompt}]
+            response = await asyncio.wait_for(
+                self.chat_with_failover(messages=summary_messages, tools=[]),
+                timeout=12.0,
+            )
+            content = (response.content or "").strip()
+            if content:
+                return content
+        except Exception:
+            pass
+        return fallback
 
     def _format_tool_result_output(self, result: Any, include_severity: bool) -> str:
         if not isinstance(result, ToolResult):
