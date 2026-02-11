@@ -252,6 +252,37 @@ def _remove_pid_lock(pid_file: Path) -> None:
             pass
 
 
+def _print_gateway_env_summary(data_dir: Path, config_path: Path, workspace_path: str, log_path: Path) -> None:
+    """Print a concise runtime environment table for gateway startup."""
+    table = Table(box=None, padding=(0, 2))
+    table.add_column("Env Item", style="cyan")
+    table.add_column("Path", style="dim")
+    table.add_row("Data Dir", str(data_dir))
+    table.add_row("Config", str(config_path))
+    table.add_row("Workspace", workspace_path)
+    table.add_row("Logs", str(log_path))
+    console.print(table)
+
+
+def _prepare_gateway_runtime(verbose: bool):
+    """Load startup config and initialize logging/health checks."""
+    if verbose:
+        import logging
+
+        logging.basicConfig(level=logging.DEBUG)
+
+    from nanobot.cli.doctor import check as run_health_check
+    from nanobot.config.loader import get_config_path, load_config
+    from nanobot.utils.helpers import get_log_path, setup_logging
+
+    config = load_config()
+    config_path = get_config_path()
+    log_path = get_log_path()
+    setup_logging(level="DEBUG" if verbose else "INFO")
+    run_health_check(quick=True)
+    return config, config_path, log_path
+
+
 # ============================================================================
 # Gateway / Server
 # ============================================================================
@@ -273,56 +304,29 @@ def gateway(
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
 ):
     """Start the nanobot gateway."""
-    from nanobot.config.loader import get_data_dir, load_config
-    data_dir = get_data_dir()
-    pid_file = data_dir / "gateway.pid"
-    _check_pid_lock(pid_file)
-    _write_pid_lock(pid_file)
-
     from nanobot.agent.loop import AgentLoop
     from nanobot.bus.queue import MessageBus
     from nanobot.channels.manager import ChannelManager
+    from nanobot.config.loader import get_data_dir
     from nanobot.cron.service import CronService
     from nanobot.cron.types import CronJob
     from nanobot.heartbeat.service import HeartbeatService
     from nanobot.providers.factory import ProviderFactory
 
-    if verbose:
-        import logging
-
-        logging.basicConfig(level=logging.DEBUG)
-
-    from nanobot.config.loader import load_config, get_data_dir, get_config_path
-    from nanobot.utils.helpers import get_log_path
-    from nanobot.providers.factory import ProviderFactory
-    from nanobot.bus.queue import MessageBus
-    from nanobot.cron.service import CronService
-
     data_dir = get_data_dir()
-    config_path = get_config_path()
-    log_path = get_log_path()
-    
-    # Environment summary table
-    table = Table(box=None, padding=(0, 2))
-    table.add_column("Env Item", style="cyan")
-    table.add_column("Path", style="dim")
-    table.add_row("Data Dir", str(data_dir))
-    table.add_row("Config", str(config_path))
-    table.add_row("Workspace", str(load_config().workspace_path))
-    table.add_row("Logs", str(log_path))
-    console.print(table)
-    
-    # Auto-logging setup
-    from nanobot.utils.helpers import setup_logging
-    setup_logging(level="DEBUG" if verbose else "INFO")
-    
-    # Quick health check
-    from nanobot.cli.doctor import check as run_health_check
-    run_health_check(quick=True)
-    
+    pid_file = data_dir / "gateway.pid"
+    _check_pid_lock(pid_file)
+    _write_pid_lock(pid_file)
+
+    config, config_path, log_path = _prepare_gateway_runtime(verbose)
+    _print_gateway_env_summary(
+        data_dir=data_dir,
+        config_path=config_path,
+        workspace_path=str(config.workspace_path),
+        log_path=log_path,
+    )
     console.print(f"{__logo__} Starting nanobot gateway on port {port}...")
 
-    config = load_config()
     model = config.agents.defaults.model
     is_bedrock = "bedrock" in model.lower()
 
@@ -835,11 +839,20 @@ def cron_run(
 
 
 @app.command()
-def status():
+def status(
+    snapshot: bool = typer.Option(
+        True, "--snapshot/--no-snapshot", help="Show runtime health snapshot"
+    ),
+):
     """Show nanobot status."""
-    from nanobot.config.loader import get_config_path, load_config
+    import json
+    import os
+    from collections import Counter
+
+    from nanobot.config.loader import get_config_path, get_data_dir, load_config
 
     config_path = get_config_path()
+    data_dir = get_data_dir()
     config = load_config()
     workspace = config.workspace_path
 
@@ -876,6 +889,68 @@ def status():
             else "[dim]not set[/dim]"
         )
         console.print(f"vLLM/Local: {vllm_status}")
+
+    if not snapshot:
+        return
+
+    console.print("\n[bold]Runtime Snapshot[/bold]")
+
+    # Gateway process state via pid file
+    pid_file = data_dir / "gateway.pid"
+    pid = None
+    gateway_alive = False
+    if pid_file.exists():
+        try:
+            pid = int(pid_file.read_text().strip())
+            os.kill(pid, 0)
+            gateway_alive = True
+        except Exception:
+            gateway_alive = False
+    console.print(
+        f"Gateway: {'[green]running[/green]' if gateway_alive else '[yellow]stopped[/yellow]'}"
+        + (f" (pid={pid})" if pid else "")
+    )
+
+    # Session count
+    sessions_dir = data_dir / "sessions"
+    session_count = len(list(sessions_dir.glob("*.jsonl"))) if sessions_dir.exists() else 0
+    console.print(f"Sessions: {session_count}")
+
+    # Provider registry summary
+    reg_count = len(config.brain.provider_registry or [])
+    console.print(f"Provider Registry: {reg_count} configured")
+    if reg_count:
+        for p in (config.brain.provider_registry or [])[:5]:
+            name = p.get("name", "unknown")
+            model = p.get("model") or p.get("default_model") or "-"
+            base = p.get("base_url") or p.get("api_base") or "-"
+            console.print(f"  - {name} | model={model} | base={base}")
+
+    # Recent errors from audit log (tool_end status=error / explicit error types)
+    audit_path = data_dir / "audit.log"
+    recent_errors = 0
+    error_types: Counter[str] = Counter()
+    if audit_path.exists():
+        try:
+            lines = audit_path.read_text(encoding="utf-8", errors="ignore").splitlines()[-500:]
+            for line in lines:
+                if not line.strip():
+                    continue
+                try:
+                    event = json.loads(line)
+                except Exception:
+                    continue
+                etype = str(event.get("type", ""))
+                status_val = str(event.get("status", ""))
+                if (etype == "tool_end" and status_val == "error") or etype.endswith("_error"):
+                    recent_errors += 1
+                    error_types[etype] += 1
+        except Exception:
+            pass
+    console.print(f"Recent Errors (last 500 audit events): {recent_errors}")
+    if error_types:
+        for etype, cnt in error_types.most_common(5):
+            console.print(f"  - {etype}: {cnt}")
 
 
 # ============================================================================

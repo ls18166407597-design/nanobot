@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Syntax check
+        run: |
+          python -m compileall -q nanobot
+
+      - name: Lint (ruff)
+        run: |
+          python -m ruff check \
+            nanobot/agent/provider_router.py \
+            nanobot/agent/tool_bootstrapper.py \
+            nanobot/agent/turn_engine.py \
+            nanobot/channels/telegram_format.py \
+            nanobot/channels/telegram_media.py \
+            nanobot/session/service.py \
+            nanobot/tests/test_contracts.py \
+            nanobot/tests/test_core_spine.py \
+            nanobot/tests/test_telegram_helpers.py
+
+      - name: Run tests
+        run: |
+          python -m pytest -q

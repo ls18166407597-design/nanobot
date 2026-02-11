@@ -26,3 +26,4 @@ workspace/sessions/
 .home/
 memory/
 *.log
+.DS_Store
