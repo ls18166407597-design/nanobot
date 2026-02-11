@@ -2,6 +2,7 @@
 
 import asyncio
 from pathlib import Path
+from typing import Any
 
 import typer
 from rich.console import Console
@@ -252,6 +253,76 @@ def _remove_pid_lock(pid_file: Path) -> None:
             pass
 
 
+def _stop_gateway_process(pid_file: Path, timeout: float, force: bool, quiet: bool = False) -> tuple[bool, int | None]:
+    """Stop gateway process from pid file.
+
+    Returns:
+        (stopped, pid) where stopped indicates process is not running after this call.
+    """
+    import os
+    import signal
+    import time
+
+    if not pid_file.exists():
+        if not quiet:
+            console.print("[yellow]Gateway is not running (pid file not found).[/yellow]")
+        return True, None
+
+    try:
+        pid = int(pid_file.read_text().strip())
+    except (ValueError, OSError):
+        _remove_pid_lock(pid_file)
+        if not quiet:
+            console.print("[yellow]Found invalid pid file. Removed stale lock.[/yellow]")
+        return True, None
+
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        _remove_pid_lock(pid_file)
+        if not quiet:
+            console.print(f"[yellow]Gateway PID {pid} is not alive. Removed stale lock.[/yellow]")
+        return True, pid
+
+    if not quiet:
+        console.print(f"[cyan]Stopping gateway process {pid}...[/cyan]")
+    os.kill(pid, signal.SIGTERM)
+
+    deadline = time.time() + max(0.1, timeout)
+    while time.time() < deadline:
+        try:
+            os.kill(pid, 0)
+            time.sleep(0.2)
+        except OSError:
+            _remove_pid_lock(pid_file)
+            if not quiet:
+                console.print(f"[green]Gateway stopped (pid={pid}).[/green]")
+            return True, pid
+
+    if force:
+        if not quiet:
+            console.print(f"[yellow]Graceful stop timed out. Sending SIGKILL to {pid}...[/yellow]")
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except OSError:
+            pass
+        time.sleep(0.2)
+        try:
+            os.kill(pid, 0)
+            if not quiet:
+                console.print(f"[red]Failed to stop gateway process {pid}.[/red]")
+            return False, pid
+        except OSError:
+            _remove_pid_lock(pid_file)
+            if not quiet:
+                console.print(f"[green]Gateway force-stopped (pid={pid}).[/green]")
+            return True, pid
+
+    if not quiet:
+        console.print(f"[red]Gateway still running (pid={pid}).[/red]")
+    return False, pid
+
+
 def _print_gateway_env_summary(data_dir: Path, config_path: Path, workspace_path: str, log_path: Path) -> None:
     """Print a concise runtime environment table for gateway startup."""
     table = Table(box=None, padding=(0, 2))
@@ -281,6 +352,68 @@ def _prepare_gateway_runtime(verbose: bool):
     setup_logging(level="DEBUG" if verbose else "INFO")
     run_health_check(quick=True)
     return config, config_path, log_path
+
+
+def _collect_health_snapshot(config: Any, data_dir: Path, config_path: Path) -> dict[str, Any]:
+    """Collect a lightweight runtime/configuration health snapshot."""
+    import json
+    import os
+    from collections import Counter
+
+    workspace = Path(str(config.workspace_path)).expanduser()
+    pid_file = data_dir / "gateway.pid"
+
+    pid = None
+    gateway_running = False
+    stale_pid = False
+    if pid_file.exists():
+        try:
+            pid = int(pid_file.read_text().strip())
+            os.kill(pid, 0)
+            gateway_running = True
+        except Exception:
+            stale_pid = True
+            gateway_running = False
+
+    model = config.agents.defaults.model
+    key_info = config.get_api_key_info(model)
+    model_key_present = bool(key_info.get("key")) or model.startswith("bedrock/")
+
+    recent_errors = 0
+    error_types: Counter[str] = Counter()
+    audit_path = data_dir / "audit.log"
+    if audit_path.exists():
+        try:
+            lines = audit_path.read_text(encoding="utf-8", errors="ignore").splitlines()[-500:]
+            for line in lines:
+                if not line.strip():
+                    continue
+                try:
+                    event = json.loads(line)
+                except Exception:
+                    continue
+                etype = str(event.get("type", ""))
+                status_val = str(event.get("status", ""))
+                if (etype == "tool_end" and status_val == "error") or etype.endswith("_error"):
+                    recent_errors += 1
+                    error_types[etype] += 1
+        except Exception:
+            pass
+
+    return {
+        "config_exists": config_path.exists(),
+        "workspace_exists": workspace.exists(),
+        "gateway_running": gateway_running,
+        "pid": pid,
+        "stale_pid": stale_pid,
+        "telegram_enabled": bool(config.channels.telegram.enabled),
+        "telegram_token_set": bool(config.channels.telegram.token),
+        "model": model,
+        "model_key_present": model_key_present,
+        "provider_registry_count": len(config.brain.provider_registry or []),
+        "recent_errors": recent_errors,
+        "error_types": dict(error_types),
+    }
 
 
 # ============================================================================
@@ -465,6 +598,41 @@ def gateway(
             _remove_pid_lock(pid_file)
 
     asyncio.run(run())
+
+
+@app.command()
+def stop(
+    timeout: float = typer.Option(8.0, "--timeout", help="Graceful stop timeout in seconds"),
+    force: bool = typer.Option(True, "--force/--no-force", help="Send SIGKILL if graceful stop times out"),
+):
+    """Stop the nanobot gateway process."""
+    from nanobot.config.loader import get_data_dir
+
+    data_dir = get_data_dir()
+    pid_file = data_dir / "gateway.pid"
+    stopped, _pid = _stop_gateway_process(pid_file=pid_file, timeout=timeout, force=force)
+    if not stopped:
+        raise typer.Exit(1)
+
+
+@app.command()
+def restart(
+    port: int = typer.Option(18790, "--port", "-p", help="Gateway port"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
+    timeout: float = typer.Option(8.0, "--timeout", help="Graceful stop timeout in seconds"),
+    force: bool = typer.Option(True, "--force/--no-force", help="Send SIGKILL if graceful stop times out"),
+):
+    """Restart the nanobot gateway process."""
+    from nanobot.config.loader import get_data_dir
+
+    data_dir = get_data_dir()
+    pid_file = data_dir / "gateway.pid"
+    stopped, _pid = _stop_gateway_process(pid_file=pid_file, timeout=timeout, force=force, quiet=False)
+    if not stopped:
+        raise typer.Exit(1)
+
+    console.print("[cyan]Starting gateway...[/cyan]")
+    gateway(port=port, verbose=verbose)
 
 
 # ============================================================================
@@ -951,6 +1119,75 @@ def status(
     if error_types:
         for etype, cnt in error_types.most_common(5):
             console.print(f"  - {etype}: {cnt}")
+
+
+@app.command()
+def health(
+    strict: bool = typer.Option(False, "--strict", help="Treat warnings as failures"),
+    require_gateway: bool = typer.Option(False, "--require-gateway", help="Fail when gateway is not running"),
+):
+    """Run a lightweight operational health check."""
+    from nanobot.config.loader import get_config_path, get_data_dir, load_config
+
+    data_dir = get_data_dir()
+    config_path = get_config_path()
+    config = load_config()
+    snap = _collect_health_snapshot(config=config, data_dir=data_dir, config_path=config_path)
+
+    checks = Table(box=None, padding=(0, 2))
+    checks.add_column("Check", style="cyan")
+    checks.add_column("Status")
+    checks.add_column("Detail", style="dim")
+
+    checks.add_row("Config file", "OK" if snap["config_exists"] else "FAIL", str(config_path))
+    checks.add_row("Workspace", "OK" if snap["workspace_exists"] else "FAIL", str(config.workspace_path))
+    checks.add_row(
+        "Gateway",
+        "OK" if snap["gateway_running"] else "WARN",
+        f"pid={snap['pid']}" if snap["pid"] else "not running",
+    )
+    checks.add_row(
+        "Telegram",
+        "OK" if (not snap["telegram_enabled"] or snap["telegram_token_set"]) else "FAIL",
+        "enabled" if snap["telegram_enabled"] else "disabled",
+    )
+    checks.add_row("Model key", "OK" if snap["model_key_present"] else "FAIL", snap["model"])
+    checks.add_row("Recent errors", "OK" if snap["recent_errors"] == 0 else "WARN", str(snap["recent_errors"]))
+    checks.add_row("Provider registry", "OK" if snap["provider_registry_count"] > 0 else "WARN", str(snap["provider_registry_count"]))
+    console.print(checks)
+
+    failures = []
+    warnings = []
+    if not snap["config_exists"]:
+        failures.append("config file missing")
+    if not snap["workspace_exists"]:
+        failures.append("workspace missing")
+    if not snap["model_key_present"]:
+        failures.append("model key missing")
+    if snap["telegram_enabled"] and not snap["telegram_token_set"]:
+        failures.append("telegram enabled but bot token is empty")
+    if require_gateway and not snap["gateway_running"]:
+        failures.append("gateway is not running")
+
+    if not snap["gateway_running"]:
+        warnings.append("gateway is not running")
+    if snap["stale_pid"]:
+        warnings.append("pid file exists but process is not alive")
+    if snap["recent_errors"] > 0:
+        warnings.append(f"recent errors={snap['recent_errors']}")
+    if snap["provider_registry_count"] == 0:
+        warnings.append("provider registry is empty")
+
+    if failures:
+        console.print(f"[red]Health check failed:[/red] {', '.join(failures)}")
+        raise typer.Exit(1)
+
+    if warnings:
+        console.print(f"[yellow]Health warnings:[/yellow] {', '.join(warnings)}")
+        if strict:
+            raise typer.Exit(1)
+
+    console.print("[green]Health check passed.[/green]")
 
 
 # ============================================================================

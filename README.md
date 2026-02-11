@@ -147,6 +147,12 @@ cd /Users/liusong/Downloads/nanobot && ./scripts/run_gateway.sh
 ```
 提示：网关会自行写入 `NANOBOT_HOME/gateway.log`，如需实时查看请用 `nanobot logs -f`。
 
+核心链路回归（5 场景）：
+```bash
+cd /Users/liusong/Downloads/nanobot
+.venv/bin/python scripts/smoke_regression.py --report .home/smoke_report.json
+```
+
 ## 📁 极简架构 (Separated Architecture)
 
 为了实现“内核稳定、大脑飞跃”，我们将项目重构为三位一体的物理隔离架构：
