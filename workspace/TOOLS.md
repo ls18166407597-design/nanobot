@@ -7,8 +7,10 @@
 ### 1. 深度环境探测 (Cognitive Insight)
 **策略**: 当由于界面变化导致自动化失效时，执行以下链路：
 1. `mac_control(action="get_front_app_info")`: 确认焦点应用与状态。
-2. `mac_vision(action="look_at_screen")`: 进行视觉语义分析，寻找“失踪”的按钮。
-3. `peekaboo(cmd="see")`: 获取最新的 UI 映射 ID。
+2. `mac_vision(action="look_at_screen")`: 优先进行视觉语义分析，定位按钮和状态。
+3. 当 `mac_vision` 不足以完成识别时，使用压缩截图（建议 `sips -Z 1024`）。
+4. 仅在压缩图仍无法识别细节时，才使用原始全量截图。
+5. `peekaboo(cmd="see")`: 在需要 UI 映射 ID 时再调用。
 
 ### 2. 信息调研闭环 (Research & Doc)
 **策略**: 处理复杂调研任务时：
