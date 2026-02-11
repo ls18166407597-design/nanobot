@@ -117,3 +117,16 @@ NANOBOT_HOME=/Users/liusong/Downloads/nanobot/.home ./.venv/bin/pytest -q
 - 网络异常：优先检查本机代理、DNS、目标 API 可达性。
 - 模型连通性异常：检查 `config.json` 的模型名、`api_base`、密钥是否匹配。
 - Telegram异常：检查 `bot token`、代理配置、轮询日志中的 HTTP 错误。
+
+## 9. 探索任务回包检查（新增）
+
+适用场景：`mac_control`/`mac_vision`/`exec` 组合探索（例如“看看这个应用有什么功能”）。
+
+检查方式：
+1. 发送一条开放式探索任务。  
+2. 在 `audit.log` 中确认工具调用量受控（不会无限增长）。  
+3. 最终回包应为“执行摘要/结论”，不应出现“已处理但无具体内容”。
+
+通过标准：
+- 在预算触发或上限触发时，系统返回强制总结文本。  
+- 用户侧可拿到明确可读结果，而不是空回复兜底。

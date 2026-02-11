@@ -65,11 +65,14 @@ def run_send(contact_name, message, switch=False, close=False):
     ]
     if switch:
         cmd.extend(["--account", "SWITCH"])
+    # Parent task already holds the lock; child should not compete for it.
+    cmd.append("--skip-lock")
     if close:
         cmd.append("--close")
     
     print(f"🚀 Executing: {' '.join(cmd)}")
-    subprocess.run(cmd)
+    result = subprocess.run(cmd)
+    return result.returncode == 0
 
 def main():
     contacts = load_contacts()
@@ -89,8 +92,9 @@ def main():
     with file_lock(lock_file):
         # --- Account 1 (Current) ---
         print("\n👤 Sending from Account 1...")
+        ok = True
         for i, name in enumerate(tg_contacts):
-            run_send(name, "签到")
+            ok = run_send(name, "签到") and ok
             time.sleep(1)
 
         # --- Account 2 (Switch) ---
@@ -98,10 +102,15 @@ def main():
         for i, name in enumerate(tg_contacts):
             is_first = (i == 0)
             is_last = (i == len(tg_contacts) - 1)
-            run_send(name, "签到", switch=is_first, close=is_last)
+            ok = run_send(name, "签到", switch=is_first, close=is_last) and ok
             time.sleep(2)
 
-    print("\n✨ All tasks completed in Blind Mode!")
+    if ok:
+        print("\n✨ All tasks completed in Blind Mode!")
+        return
+
+    print("\n❌ Some automation runs failed in Blind Mode.")
+    sys.exit(1)
 
 if __name__ == "__main__":
     main()

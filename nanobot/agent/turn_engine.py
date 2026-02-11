@@ -58,6 +58,10 @@ class TurnEngine:
         seen_tool_call_hashes: set[str] = set()
         last_tool_signature: str | None = None
         repeat_count: int = 0
+        total_tool_calls: int = 0
+        tool_call_counts: dict[str, int] = {}
+        max_total_tool_calls = 8
+        per_tool_limits = {"mac_vision": 3, "exec": 3}
 
         while iteration < self.max_iterations:
             iteration += 1
@@ -75,6 +79,17 @@ class TurnEngine:
 
             if not tool_calls:
                 final_content = response.content
+                break
+
+            budget_reason = self._tool_budget_reason(
+                tool_calls=tool_calls,
+                total_tool_calls=total_tool_calls,
+                tool_call_counts=tool_call_counts,
+                max_total_tool_calls=max_total_tool_calls,
+                per_tool_limits=per_tool_limits,
+            )
+            if budget_reason:
+                final_content = self._build_forced_summary(messages=messages, reason=budget_reason)
                 break
 
             is_strict_loop, current_ids, current_hashes, last_tool_signature, repeat_count = self._evaluate_loop_repetition(
@@ -124,9 +139,14 @@ class TurnEngine:
                 include_severity=include_severity,
                 parallel_tool_exec=parallel_tool_exec,
             )
+            total_tool_calls += len(tool_calls)
+            for tc in tool_calls:
+                tool_call_counts[tc.name] = tool_call_counts.get(tc.name, 0) + 1
             if compact_after_tools:
                 await self._compact_messages_if_needed(messages, trace_id)
 
+        if final_content is None:
+            final_content = self._build_forced_summary(messages=messages, reason="已达到本轮工具迭代上限")
         return final_content
 
     def _inject_self_correction(self, messages: list[dict[str, Any]]) -> None:
@@ -160,6 +180,48 @@ class TurnEngine:
 
         is_strict_loop = iteration > 3 and repeat_count >= 3 and (id_loop or hash_loop)
         return is_strict_loop, current_ids, current_hashes, last_tool_signature, repeat_count
+
+    def _tool_budget_reason(
+        self,
+        *,
+        tool_calls: list[ToolCallRequest],
+        total_tool_calls: int,
+        tool_call_counts: dict[str, int],
+        max_total_tool_calls: int,
+        per_tool_limits: dict[str, int],
+    ) -> str | None:
+        projected_total = total_tool_calls + len(tool_calls)
+        if projected_total > max_total_tool_calls:
+            return f"总工具调用预算超限（{projected_total}/{max_total_tool_calls}）"
+
+        projected_counts = dict(tool_call_counts)
+        for tc in tool_calls:
+            projected_counts[tc.name] = projected_counts.get(tc.name, 0) + 1
+
+        for tool_name, limit in per_tool_limits.items():
+            count = projected_counts.get(tool_name, 0)
+            if count > limit:
+                return f"工具 {tool_name} 调用预算超限（{count}/{limit}）"
+
+        return None
+
+    def _build_forced_summary(self, *, messages: list[dict[str, Any]], reason: str) -> str:
+        tool_msgs = [m for m in messages if m.get("role") == "tool"]
+        recent = tool_msgs[-6:]
+
+        lines = [f"本轮已停止继续试探：{reason}。", "当前已完成的步骤摘要："]
+        if not recent:
+            lines.append("- 已执行若干步骤，但未形成可确认结果。")
+        else:
+            for m in recent:
+                tool_name = m.get("name", "unknown")
+                content = str(m.get("content", "")).strip().replace("\n", " ")
+                if len(content) > 120:
+                    content = content[:120] + "..."
+                lines.append(f"- {tool_name}: {content or '(no output)'}")
+
+        lines.append("建议：请给出更具体的目标（例如指定要点击的按钮/要读取的区域），我将按该目标继续执行。")
+        return "\n".join(lines)
 
     def _format_tool_result_output(self, result: Any, include_severity: bool) -> str:
         if not isinstance(result, ToolResult):
