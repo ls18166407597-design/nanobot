@@ -82,6 +82,18 @@
 - 职责限定为：消息路由、生命周期、上下文构建、调用 TurnEngine、结果发布。
 - 不直接承载 provider failover 与回合执行细节。
 
+### 4.6 Message Flow 与 Turn Service 边界
+- 结构：
+- `nanobot/agent/message_flow.py::MessageFlowCoordinator`
+- `nanobot/agent/system_turn_service.py::SystemTurnService`
+- `nanobot/agent/user_turn_service.py::UserTurnService`
+- `nanobot/agent/origin_resolver.py::resolve_system_origin`
+- 规则：
+- `MessageFlowCoordinator` 负责 lane 选择、busy notice、防抖、错误回传路由。
+- `SystemTurnService` 负责 system channel 的 origin 解析、上下文构建、回合执行、会话持久化。
+- `UserTurnService` 负责 user channel 的会话压缩、上下文构建、回合执行、会话持久化。
+- `AgentLoop` 只做编排，不重复实现上述策略逻辑。
+
 ## 5. 变更门禁 (Change Gate)
 涉及核心契约改动时，必须同时满足：
 1. 更新本文件 `Core Contracts` 对应条目。

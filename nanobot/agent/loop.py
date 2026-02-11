@@ -15,8 +15,6 @@ from loguru import logger
 
 from nanobot.agent.context import ContextBuilder
 from nanobot.providers.factory import ProviderFactory
-from nanobot.agent.tools.cron import CronTool
-from nanobot.agent.tools.message import MessageTool
 from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.agent.models import ModelRegistry
 from nanobot.bus.events import InboundMessage, OutboundMessage
@@ -32,6 +30,7 @@ from nanobot.agent.provider_router import ProviderRouter
 from nanobot.agent.tool_bootstrapper import ToolBootstrapper
 from nanobot.agent.message_flow import MessageFlowCoordinator
 from nanobot.agent.system_turn_service import SystemTurnService
+from nanobot.agent.user_turn_service import UserTurnService
 
 
 class AgentLoop:
@@ -108,6 +107,15 @@ class AgentLoop:
             context=self.context,
             tools=self.tools,
             turn_engine=self.turn_engine,
+            filter_reasoning=self._filter_reasoning,
+            is_silent_reply=self._is_silent_reply,
+        )
+        self.user_turn_service = UserTurnService(
+            sessions=self.sessions,
+            context=self.context,
+            tools=self.tools,
+            turn_engine=self.turn_engine,
+            compact_history=self._compact_history,
             filter_reasoning=self._filter_reasoning,
             is_silent_reply=self._is_silent_reply,
         )
@@ -261,78 +269,9 @@ class AgentLoop:
         Returns:
             The response message, or None if no response needed.
         """
-        # Handle system messages (cron signals, etc.)
-        # The chat_id contains the original "channel:chat_id" to route back to
         if msg.channel == "system":
-            result = await self._process_system_message(msg)
-            if result:
-                result.content = self._filter_reasoning(result.content)
-                if self._is_silent_reply(result.content):
-                    return None
-            return result
-
-        if msg.trace_id:
-            logger.info(f"[TraceID: {msg.trace_id}] Processing message from {msg.channel}:{msg.sender_id}")
-        else:
-            logger.info(f"Processing message from {msg.channel}:{msg.sender_id}")
-
-        # Get or create session (explicit override is supported at InboundMessage level).
-        session = self.sessions.get_or_create(msg.session_key)
-
-        # Auto-compact history if needed
-        await self._compact_history(session)
-
-        # Update tool contexts
-        message_tool = self.tools.get("message")
-        if isinstance(message_tool, MessageTool):
-            message_tool.set_context(msg.channel, msg.chat_id)
-
-        cron_tool = self.tools.get("cron")
-        if isinstance(cron_tool, CronTool):
-            cron_tool.set_context(msg.channel, msg.chat_id)
-
-        # Build initial messages (use get_history for LLM-formatted messages)
-        messages = self.context.build_messages(
-            history=session.get_history(),
-            current_message=msg.content,
-            media=msg.media if msg.media else None,
-            channel=msg.channel,
-            chat_id=msg.chat_id,
-        )
-
-        final_content = await self.turn_engine.run(
-            messages=messages,
-            trace_id=msg.trace_id,
-            parse_calls_from_text=True,
-            include_severity=True,
-            parallel_tool_exec=True,
-            compact_after_tools=True,
-        )
-
-        if final_content is None:
-            final_content = "我已经完成了处理，但暂时没有需要回复的具体内容。"
-
-        # Final check: if context is still too large, we might want to flag it
-        # but for now we just finish.
-
-        # Filter reasoning before saving/sending
-        final_content = self._filter_reasoning(str(final_content))
-        if self._is_silent_reply(final_content):
-            session.add_message("user", msg.content)
-            self.sessions.save(session)
-            return None
-
-        # Save to session
-        session.add_message("user", msg.content)
-        session.add_message("assistant", final_content)
-        self.sessions.save(session)
-
-        return OutboundMessage(
-            channel=msg.channel, 
-            chat_id=msg.chat_id, 
-            content=final_content,
-            trace_id=msg.trace_id
-        )
+            return await self._process_system_message(msg)
+        return await self.user_turn_service.process(msg)
 
     async def _chat_with_failover(
         self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None

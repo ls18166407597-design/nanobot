@@ -141,6 +141,11 @@ nanobot doctor
 nanobot gateway  # 启动完整网关 (支持 Telegram/飞书)
 ```
 
+推荐本地一键启动（统一虚拟环境与日志路径）：
+```bash
+cd /Users/liusong/Downloads/nanobot && ./scripts/run_gateway.sh
+```
+
 ## 📁 极简架构 (Separated Architecture)
 
 为了实现“内核稳定、大脑飞跃”，我们将项目重构为三位一体的物理隔离架构：
