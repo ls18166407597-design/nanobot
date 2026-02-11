@@ -157,7 +157,8 @@ class BrainConfig(BaseModel):
     # Advanced settings
     memory_chunk_size: int = 500
     summary_threshold: int = 40  # Messages count to trigger summary
-    
+    max_total_tool_calls: int = 30  # Hard cap for tool calls in a single turn
+
     # Registry for additional providers (e.g. One API)
     provider_registry: list[dict[str, str]] = Field(default_factory=list)
 

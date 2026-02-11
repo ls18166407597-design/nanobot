@@ -101,6 +101,7 @@ class AgentLoop:
             summarize_messages=self._summarize_messages,
             self_correction_prompt=self.SELF_CORRECTION_PROMPT,
             loop_break_reply=self.LOOP_BREAK_REPLY,
+            max_total_tool_calls=max(1, int(getattr(self.brain_config, "max_total_tool_calls", 30))),
         )
         self.system_turn_service = SystemTurnService(
             sessions=self.sessions,

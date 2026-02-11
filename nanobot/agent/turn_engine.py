@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import json
+import re
 import time
 from typing import Any, Awaitable, Callable
 
@@ -30,6 +31,7 @@ class TurnEngine:
         summarize_messages: Callable[[list[dict[str, Any]]], Awaitable[str | None]],
         self_correction_prompt: str,
         loop_break_reply: str,
+        max_total_tool_calls: int = 30,
     ):
         self.context = context
         self.executor = executor
@@ -41,6 +43,7 @@ class TurnEngine:
         self.summarize_messages = summarize_messages
         self.self_correction_prompt = self_correction_prompt
         self.loop_break_reply = loop_break_reply
+        self.max_total_tool_calls = max_total_tool_calls
 
     async def run(
         self,
@@ -60,7 +63,7 @@ class TurnEngine:
         repeat_count: int = 0
         total_tool_calls: int = 0
         tool_call_counts: dict[str, int] = {}
-        max_total_tool_calls = 30
+        max_total_tool_calls = self.max_total_tool_calls
         per_tool_limits: dict[str, int] = {}
 
         while iteration < self.max_iterations:
@@ -79,6 +82,11 @@ class TurnEngine:
 
             if not tool_calls:
                 final_content = response.content
+                break
+
+            clarification = self._clarification_needed(messages=messages, tool_calls=tool_calls)
+            if clarification:
+                final_content = clarification
                 break
 
             budget_reason = self._tool_budget_reason(
@@ -246,6 +254,70 @@ class TurnEngine:
         except Exception:
             pass
         return fallback
+
+    def _clarification_needed(
+        self,
+        *,
+        messages: list[dict[str, Any]],
+        tool_calls: list[ToolCallRequest],
+    ) -> str | None:
+        """
+        Generic guard for context-sensitive parameters:
+        if model injects values not clearly mentioned by user, ask for confirmation first.
+        """
+        user_text = self._latest_user_text(messages)
+        if not user_text:
+            return None
+        if self._user_allows_inference(user_text):
+            return None
+
+        sensitive_labels = {
+            "location": "地点",
+            "city": "城市",
+            "region": "地区",
+            "province": "省份",
+            "country": "国家",
+            "timezone": "时区",
+            "account": "账号",
+            "contact": "联系人",
+            "recipient": "接收人",
+            "chat_id": "会话对象",
+        }
+
+        for tc in tool_calls:
+            args = tc.arguments or {}
+            for key, label in sensitive_labels.items():
+                value = args.get(key)
+                if not isinstance(value, str):
+                    continue
+                candidate = value.strip()
+                if not candidate:
+                    continue
+                if not self._value_mentioned(user_text, candidate):
+                    return f"在继续之前需要你确认：本次{label}是“{candidate}”吗？如果不是，请告诉我正确的{label}。"
+        return None
+
+    def _latest_user_text(self, messages: list[dict[str, Any]]) -> str:
+        for m in reversed(messages):
+            if m.get("role") == "user":
+                content = m.get("content")
+                if isinstance(content, str):
+                    return content
+        return ""
+
+    def _user_allows_inference(self, user_text: str) -> bool:
+        hints = ("默认", "按上次", "沿用", "你决定", "随便", "任意")
+        return any(h in user_text for h in hints)
+
+    def _value_mentioned(self, user_text: str, candidate: str) -> bool:
+        if candidate in user_text:
+            return True
+        # Token overlap fallback: tolerant match for mixed Chinese/English values.
+        user_tokens = set(re.findall(r"[\u4e00-\u9fff]{2,}|[A-Za-z0-9_+-]{2,}", user_text.lower()))
+        cand_tokens = set(re.findall(r"[\u4e00-\u9fff]{2,}|[A-Za-z0-9_+-]{2,}", candidate.lower()))
+        if not cand_tokens:
+            return False
+        return len(user_tokens.intersection(cand_tokens)) > 0
 
     def _format_tool_result_output(self, result: Any, include_severity: bool) -> str:
         if not isinstance(result, ToolResult):

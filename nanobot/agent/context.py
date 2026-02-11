@@ -5,6 +5,7 @@ import json
 import mimetypes
 import os
 import platform
+import re
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,7 @@ class ContextBuilder:
     """
 
     BOOTSTRAP_FILES = ["AGENTS.md", "SOUL.md", "USER.md", "TOOLS.md", "IDENTITY.md"]
+    PROFILE_FILE = "PROFILE.md"
 
     def __init__(self, workspace: Path, model: str | None = None, brain_config: Any | None = None):
         self.workspace = workspace
@@ -53,6 +55,10 @@ class ContextBuilder:
         bootstrap = self._load_bootstrap_files()
         if bootstrap:
             parts.append(bootstrap)
+
+        profile_summary = self._build_profile_summary()
+        if profile_summary:
+            parts.append(profile_summary)
 
         # Memory context - Lean loading with Light RAG
         memory_summary = self.memory.get_memory_context(query)
@@ -110,6 +116,9 @@ Only the "visible" response (outside <think> tags) is delivered to the Boss.
 
     def _get_identity(self) -> str:
         """Get the core identity section."""
+        profile = self._load_profile_map()
+        user_title = profile.get("常用称呼") or "用户"
+
         from datetime import datetime
         try:
             from zoneinfo import ZoneInfo
@@ -160,11 +169,11 @@ Only the "visible" response (outside <think> tags) is delivered to the Boss.
 
         return f"""# Nanobot (执行官版)
 
-你是 Nanobot，老板最忠诚的数字影子和贴身秘书。
-你是在这里协助老板构建未来，通过每一行优雅的代码和每一个优化的流程来提升效率。
+你是 Nanobot，{user_title}最忠诚的数字影子和贴身秘书。
+你是在这里协助{user_title}构建未来，通过每一行优雅的代码和每一个优化的流程来提升效率。
 
 ## 安全与道德
-- 你是忠诚的助手：老板的目标就是你的目标。
+- 你是忠诚的助手：{user_title}的目标就是你的目标。
 - 优先考虑系统完整性和人类监督。
 - 保持透明、可靠且果断。
 
@@ -186,6 +195,10 @@ Only the "visible" response (outside <think> tags) is delivered to the Boss.
 - **温暖且共情**: 认可老板的辛勤工作。使用能体现你们伙伴关系的语气。
 - **执行官式效率**: 安静且精准。不带多余标识，直接给出结果。
 - **语言协议**: 始终使用 **简体中文** 回复，除非老板明确要求使用其他语言。
+
+## 参数澄清规则
+- 对于依赖个人上下文的任务（如天气、出行、餐饮、联系人账号），如果关键信息缺失，必须先向{user_title}澄清，不得擅自假设默认值。
+- 若你基于记忆做了假设（例如常驻城市、默认账号），必须在回复中明确说明“基于记忆假设为 X”，并优先请求{user_title}确认。
 
 ## Tooling & Reasoning
 You have access to a set of powerful tools.
@@ -218,6 +231,55 @@ You MUST use the native function calling mechanism to execute tools.
 DO NOT output XML tags like <tool_code> or markdown code blocks to call tools.
 If you want to use a tool, generate the corresponding tool call object.
 """
+
+    def _load_profile_map(self) -> dict[str, str]:
+        """Parse workspace PROFILE.md as loose key-value bullets."""
+        profile_path = self.workspace / self.PROFILE_FILE
+        if not profile_path.exists():
+            return {}
+
+        kv: dict[str, str] = {}
+        try:
+            for line in profile_path.read_text(encoding="utf-8").splitlines():
+                m = re.match(r"^\s*-\s*([^:：]+)\s*[：:]\s*(.*)$", line)
+                if not m:
+                    continue
+                key = m.group(1).strip()
+                value = m.group(2).strip()
+                kv[key] = value
+        except Exception:
+            return {}
+        return kv
+
+    def _build_profile_summary(self) -> str:
+        """
+        Build a tiny profile summary for stable high-frequency fields only.
+        Missing fields are explicitly marked; ask only when task needs them.
+        """
+        profile = self._load_profile_map()
+        if not profile:
+            return ""
+
+        fields = [
+            "常用称呼",
+            "时区",
+            "主要语言",
+            "回复风格",
+        ]
+        lines = ["# 用户画像摘要（最小注入）"]
+        missing: list[str] = []
+        for f in fields:
+            v = (profile.get(f) or "").strip()
+            if v:
+                lines.append(f"- {f}: {v}")
+            else:
+                lines.append(f"- {f}: <EMPTY>")
+                missing.append(f)
+
+        lines.append("- 规则: 仅在任务需要这些字段时才向用户补全；不要在每轮对话都主动追问。")
+        if missing:
+            lines.append(f"- 当前待补全字段: {', '.join(missing)}")
+        return "\n".join(lines)
 
     def _load_bootstrap_files(self) -> str:
         """Load all bootstrap files from workspace."""
