@@ -23,4 +23,6 @@ echo "Starting Nanobot Gateway..."
 echo "NANOBOT_HOME: $NANOBOT_HOME"
 echo "Logs: $NANOBOT_HOME/gateway.log"
 
-exec .venv/bin/nanobot gateway 2>&1 | tee "$NANOBOT_HOME/gateway.log"
+# Do not pipe to the same gateway.log via tee. The gateway process already writes
+# to that file internally; dual writers can corrupt log content.
+exec .venv/bin/nanobot gateway

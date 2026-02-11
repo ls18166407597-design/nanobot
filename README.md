@@ -145,6 +145,7 @@ nanobot gateway  # 启动完整网关 (支持 Telegram/飞书)
 ```bash
 cd /Users/liusong/Downloads/nanobot && ./scripts/run_gateway.sh
 ```
+提示：网关会自行写入 `NANOBOT_HOME/gateway.log`，如需实时查看请用 `nanobot logs -f`。
 
 ## 📁 极简架构 (Separated Architecture)
 
