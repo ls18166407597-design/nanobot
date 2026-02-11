@@ -96,6 +96,19 @@ class Tool(ABC):
 
     def _validate(self, val: Any, schema: dict[str, Any], path: str) -> list[str]:
         t, label = schema.get("type"), path or "parameter"
+
+        # Support union types like ["string", "integer", "boolean"].
+        if isinstance(t, list):
+            union_errors: list[list[str]] = []
+            for candidate in t:
+                candidate_schema = {**schema, "type": candidate}
+                errs = self._validate(val, candidate_schema, path)
+                if not errs:
+                    return []
+                union_errors.append(errs)
+            allowed = ", ".join(str(x) for x in t)
+            return [f"{label} should be one of types [{allowed}]"]
+
         if t in self._TYPE_MAP and not isinstance(val, self._TYPE_MAP[t]):
             return [f"{label} should be {t}"]
 

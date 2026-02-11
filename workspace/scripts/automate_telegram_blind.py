@@ -6,14 +6,73 @@ import time
 import subprocess
 from pathlib import Path
 import argparse
+import signal
+from contextlib import contextmanager
 
 # Add project root to sys.path
 sys.path.append(os.getcwd())
 
-async def automate_telegram_keyboard_blind(contact_name=None, message_content=None, keep_open=True, target_account=None, info_only=False):
-    os.environ["NANOBOT_HOME"] = os.path.join(os.getcwd(), ".home")
+@contextmanager
+def file_lock(lock_file):
+    lock_path = Path(lock_file)
+    success = False
     
-    print(f"🚀 Starting Telegram Automation (Target: {contact_name})...")
+    # Try once or take over stale
+    try:
+        fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        with os.fdopen(fd, 'w') as f:
+            f.write(str(os.getpid()))
+        success = True
+    except FileExistsError:
+        try:
+            old_pid = int(lock_path.read_text().strip())
+            os.kill(old_pid, 0)
+            print(f"⚠️ Warning: Another automation is already running (PID: {old_pid}). Skipping.")
+            sys.exit(0)
+        except (ProcessLookupError, ValueError, PermissionError):
+            print("♻️ Stale lock file found. Taking over...")
+            lock_path.unlink(missing_ok=True)
+            # Second attempt after clearing stale
+            try:
+                fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                with os.fdopen(fd, 'w') as f:
+                    f.write(str(os.getpid()))
+                success = True
+            except:
+                print("❌ Failed to acquire lock after clearing stale.")
+                sys.exit(1)
+
+    try:
+        yield
+    finally:
+        if success and lock_path.exists():
+            try:
+                current_lock_pid = int(lock_path.read_text().strip())
+                if current_lock_pid == os.getpid():
+                    lock_path.unlink()
+            except:
+                pass
+
+async def automate_telegram_keyboard_blind(contact_name=None, message_content=None, keep_open=True, target_account=None, info_only=False):
+    # Find project root (looking for .home)
+    current_path = Path(os.getcwd())
+    home_dir = None
+    for path in [current_path] + list(current_path.parents):
+        if (path / ".home").exists():
+            home_dir = path / ".home"
+            break
+            
+    if not home_dir:
+        # Fallback to current working directory
+        home_dir = current_path / ".home"
+        home_dir.mkdir(exist_ok=True)
+        
+    os.environ["NANOBOT_HOME"] = str(home_dir.absolute())
+    lock_file = home_dir / "tg_automation.lock"
+    
+    print(f"🔒 Using Lock File: {lock_file.absolute()}")
+    with file_lock(lock_file):
+        print(f"🚀 Starting Telegram Automation (Target: {contact_name})...")
     
     # Secure Handling: If message is in clipboard, capture it NOW before search overwrites it
     if message_content == "[FROM_CLIPBOARD]":

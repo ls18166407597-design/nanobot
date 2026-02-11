@@ -111,8 +111,15 @@ Only the "visible" response (outside <think> tags) is delivered to the Boss.
     def _get_identity(self) -> str:
         """Get the core identity section."""
         from datetime import datetime
+        try:
+            from zoneinfo import ZoneInfo
+            tz_str = getattr(self.brain_config, "timezone", "Asia/Shanghai")
+            tz = ZoneInfo(tz_str)
+        except Exception:
+            tz = None
 
-        now = datetime.now().strftime("%Y-%m-%d %H:%M (%A)")
+        now_dt = datetime.now(tz) if tz else datetime.now()
+        now = now_dt.strftime("%Y-%m-%d %H:%M (%A)")
         workspace_path = str(self.workspace.expanduser().resolve())
         system = platform.system()
         runtime = f"{'macOS' if system == 'Darwin' else system} {platform.machine()}, Python {platform.python_version()}"
@@ -250,13 +257,41 @@ If you want to use a tool, generate the corresponding tool call object.
         """
         messages: list[dict[str, Any]] = []
 
+        # History
+        # Format history to include timestamps if available
+        formatted_history = []
+        try:
+            from zoneinfo import ZoneInfo
+            tz_str = getattr(self.brain_config, "timezone", "Asia/Shanghai")
+            tz = ZoneInfo(tz_str)
+        except Exception:
+            tz = None
+
+        for m in history:
+            role = m.get("role")
+            content = m.get("content")
+            ts_str = m.get("timestamp")
+            
+            if ts_str and isinstance(content, str) and not content.startswith("["):
+                try:
+                    from datetime import datetime
+                    dt = datetime.fromisoformat(ts_str)
+                    if tz:
+                        dt = dt.astimezone(tz)
+                    time_tag = dt.strftime("[%H:%M]")
+                    content = f"{time_tag} {content}"
+                except Exception:
+                    pass
+            
+            formatted_history.append({"role": role, "content": content})
+
         # System prompt
         # Use current message as query for RAG
         system_prompt = self.build_system_prompt(skill_names, query=current_message)
         messages.append({"role": "system", "content": system_prompt})
 
         # History
-        messages.extend(history)
+        messages.extend(formatted_history)
 
         # Current message (with optional image attachments)
         user_content = self._build_user_content(current_message, media)

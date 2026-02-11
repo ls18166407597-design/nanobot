@@ -1,9 +1,51 @@
-import subprocess
-import time
-import sys
-import os
 import json
+import os
+import sys
+import time
 from pathlib import Path
+from contextlib import contextmanager
+
+@contextmanager
+def file_lock(lock_file):
+    lock_path = Path(lock_file)
+    success = False
+    try:
+        fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        with os.fdopen(fd, 'w') as f:
+            f.write(str(os.getpid()))
+        success = True
+    except FileExistsError:
+        try:
+            old_pid = int(lock_path.read_text().strip())
+            os.kill(old_pid, 0)
+            print(f"⚠️ Warning: Another task is already running (PID: {old_pid}). Skipping.")
+            sys.exit(0)
+        except (ProcessLookupError, ValueError, PermissionError):
+            print("♻️ Stale lock file found. Taking over...")
+            lock_path.unlink(missing_ok=True)
+            try:
+                fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                with os.fdopen(fd, 'w') as f:
+                    f.write(str(os.getpid()))
+                success = True
+            except:
+                sys.exit(1)
+    try:
+        yield
+    finally:
+        if success and lock_path.exists():
+            try:
+                if int(lock_path.read_text().strip()) == os.getpid():
+                    lock_path.unlink()
+            except:
+                pass
+
+def get_home_dir():
+    current_path = Path(os.getcwd())
+    for path in [current_path] + list(current_path.parents):
+        if (path / ".home").exists():
+            return path / ".home"
+    return current_path / ".home"
 
 # Load contacts
 CONTACTS_FILE = Path("scripts/contacts.json")
@@ -29,7 +71,8 @@ def run_send(contact_name, message, switch=False, close=False):
 def main():
     contacts = load_contacts()
     # Filter for Telegram contacts
-    tg_contacts = [info["name"] for info in contacts.values() if info["app"].lower() == "telegram"]
+    # Filter for Telegram contacts and deduplicate
+    tg_contacts = sorted(list(set(info["name"] for info in contacts.values() if info["app"].lower() == "telegram")))
     
     if not tg_contacts:
         print("❌ No Telegram contacts found.")
@@ -39,19 +82,21 @@ def main():
     subprocess.run(['open', '-a', 'Telegram'])
     time.sleep(5)
 
-    # --- Account 1 (Current) ---
-    print("\n👤 Sending from Account 1...")
-    for i, name in enumerate(tg_contacts):
-        run_send(name, "签到")
-        time.sleep(1)
+    lock_file = get_home_dir() / "tg_automation.lock"
+    with file_lock(lock_file):
+        # --- Account 1 (Current) ---
+        print("\n👤 Sending from Account 1...")
+        for i, name in enumerate(tg_contacts):
+            run_send(name, "签到")
+            time.sleep(1)
 
-    # --- Account 2 (Switch) ---
-    print("\n👤 Switching to Account 2...")
-    for i, name in enumerate(tg_contacts):
-        is_first = (i == 0)
-        is_last = (i == len(tg_contacts) - 1)
-        run_send(name, "签到", switch=is_first, close=is_last)
-        time.sleep(2)
+        # --- Account 2 (Switch) ---
+        print("\n👤 Switching to Account 2...")
+        for i, name in enumerate(tg_contacts):
+            is_first = (i == 0)
+            is_last = (i == len(tg_contacts) - 1)
+            run_send(name, "签到", switch=is_first, close=is_last)
+            time.sleep(2)
 
     print("\n✨ All tasks completed in Blind Mode!")
 

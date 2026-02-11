@@ -1,13 +1,15 @@
 """Telegram channel implementation using python-telegram-bot."""
 
 import asyncio
+import json
 import re
+from datetime import datetime
+from uuid import uuid4
 
 from loguru import logger
-from telegram import Update
+from telegram import BotCommand, Update
 from telegram.ext import (
     Application,
-    ApplicationBuilder,
     CommandHandler,
     ContextTypes,
     MessageHandler,
@@ -19,7 +21,7 @@ from nanobot.bus.events import OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
 from nanobot.config.schema import TelegramConfig
-from nanobot.utils.helpers import get_data_path
+from nanobot.utils.helpers import get_data_path, get_sessions_path, safe_filename
 
 
 def _markdown_to_telegram_html(text: str) -> str:
@@ -132,6 +134,7 @@ class TelegramChannel(BaseChannel):
         self.groq_api_key = groq_api_key
         self._app: Application | None = None
         self._chat_ids: dict[str, int] = {}  # Map sender_id to chat_id for replies
+        self._active_sessions: dict[str, str] = {}  # chat_id -> session_key override
 
     async def start(self) -> None:
         """Start the Telegram bot with long polling."""
@@ -175,8 +178,14 @@ class TelegramChannel(BaseChannel):
                 )
             )
 
-            # Add /start command handler
+            # Add command handlers
             self._app.add_handler(CommandHandler("start", self._on_start))
+            self._app.add_handler(CommandHandler("help", self._on_help))
+            self._app.add_handler(CommandHandler("status", self._on_status))
+            self._app.add_handler(CommandHandler("history", self._on_history))
+            self._app.add_handler(CommandHandler("new", self._on_new))
+            self._app.add_handler(CommandHandler("clear", self._on_clear))
+            self._app.add_handler(MessageHandler(filters.COMMAND, self._on_unknown_command))
 
             logger.info("Initializing Telegram application...")
             await self._app.initialize()
@@ -187,6 +196,16 @@ class TelegramChannel(BaseChannel):
             logger.info("Fetching Telegram bot info (getMe)...")
             bot_info = await asyncio.wait_for(self._app.bot.get_me(), timeout=30.0)
             logger.info(f"Telegram bot @{bot_info.username} connected")
+            await self._app.bot.set_my_commands(
+                [
+                    BotCommand("start", "开始使用"),
+                    BotCommand("help", "查看可用命令"),
+                    BotCommand("status", "查看机器人状态"),
+                    BotCommand("history", "查看会话历史"),
+                    BotCommand("new", "开启新会话"),
+                    BotCommand("clear", "清空当前会话"),
+                ]
+            )
 
             # Start polling (this runs until stopped)
             logger.info("Starting long polling...")
@@ -266,8 +285,113 @@ class TelegramChannel(BaseChannel):
 
         user = update.effective_user
         await update.message.reply_text(
-            f"👋 Hi {user.first_name}! I'm nanobot.\n\nSend me a message and I'll respond!"
+            f"你好 {user.first_name}，我是 nanobot。\n\n直接发消息即可，我会处理并回复。输入 /help 查看命令。"
         )
+
+    async def _on_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /help command."""
+        if not update.message:
+            return
+        await update.message.reply_text(
+            "可用命令:\n"
+            "/start - 开始使用\n"
+            "/help - 查看命令说明\n"
+            "/status - 查看机器人状态\n"
+            "/history - 查看会话历史\n"
+            "/new - 开启新会话\n"
+            "/clear - 清空当前会话"
+        )
+
+    async def _on_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /status command."""
+        if not update.message:
+            return
+        data_dir = get_data_path()
+        chat_id = str(update.message.chat_id)
+        active_session = self._get_active_session_key(chat_id)
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        await update.message.reply_text(
+            f"状态: 在线\n时间: {now}\n数据目录: {data_dir}\n当前会话: {active_session}"
+        )
+
+    async def _on_new(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /new command: switch to a brand new session key."""
+        if not update.message:
+            return
+        chat_id = str(update.message.chat_id)
+        new_key = self._new_session_key(chat_id)
+        self._active_sessions[chat_id] = new_key
+        await update.message.reply_text("已开启新会话。后续消息将使用全新上下文。")
+
+    async def _on_history(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /history command: list recent sessions for current chat."""
+        if not update.message:
+            return
+        chat_id = str(update.message.chat_id)
+        base = safe_filename(f"{self.name}_{chat_id}")
+        sessions_dir = get_sessions_path()
+        current = self._get_active_session_key(chat_id)
+
+        entries: list[tuple[str, str]] = []  # (key, updated_at)
+        for path in sessions_dir.glob(f"{base}*.jsonl"):
+            key = path.stem
+            updated = ""
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    first = f.readline().strip()
+                if first:
+                    data = json.loads(first)
+                    if data.get("_type") == "metadata":
+                        key = data.get("key") or key
+                        updated = data.get("updated_at") or ""
+            except Exception:
+                pass
+            entries.append((str(key), str(updated)))
+
+        if not entries:
+            await update.message.reply_text("当前 chat 暂无会话历史。")
+            return
+
+        entries.sort(key=lambda x: x[1], reverse=True)
+        lines = ["最近会话（最多 10 条）:"]
+        for key, updated in entries[:10]:
+            marker = " [当前]" if key == current else ""
+            ts = updated if updated else "-"
+            lines.append(f"- {key}{marker} | {ts}")
+        await update.message.reply_text("\n".join(lines))
+
+    async def _on_clear(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /clear command: delete current session file and rotate to a new session."""
+        if not update.message:
+            return
+        chat_id = str(update.message.chat_id)
+        session_key = self._get_active_session_key(chat_id)
+        safe_key = safe_filename(session_key.replace(":", "_"))
+        session_path = get_sessions_path() / f"{safe_key}.jsonl"
+        deleted = False
+        if session_path.exists():
+            session_path.unlink()
+            deleted = True
+        self._active_sessions[chat_id] = self._new_session_key(chat_id)
+        if deleted:
+            await update.message.reply_text("当前会话已清空，并已切换到新会话。")
+        else:
+            await update.message.reply_text("当前会话文件不存在，已切换到新会话。")
+
+    async def _on_unknown_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle unknown slash commands."""
+        if not update.message:
+            return
+        await update.message.reply_text("未识别的命令。输入 /help 查看可用命令。")
+
+    def _get_active_session_key(self, chat_id: str) -> str:
+        """Get active session key for a chat."""
+        return self._active_sessions.get(chat_id, f"{self.name}:{chat_id}")
+
+    def _new_session_key(self, chat_id: str) -> str:
+        """Create a new unique session key for a chat."""
+        ts = datetime.now().strftime("%Y%m%d%H%M%S")
+        return f"{self.name}:{chat_id}#s{ts}_{uuid4().hex[:6]}"
 
     async def _on_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle incoming messages (text, photos, voice, documents)."""
@@ -365,6 +489,7 @@ class TelegramChannel(BaseChannel):
                 "username": user.username,
                 "first_name": user.first_name,
                 "is_group": message.chat.type != "private",
+                "session_key": self._get_active_session_key(str(chat_id)),
             },
         )
 

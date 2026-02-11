@@ -46,8 +46,8 @@ class Session:
             self.messages[-max_messages:] if len(self.messages) > max_messages else self.messages
         )
 
-        # Convert to LLM format (just role and content)
-        return [{"role": m["role"], "content": m["content"]} for m in recent]
+        # Convert to LLM format (keep original fields for context builder processing)
+        return [dict(m) for m in recent]
 
     def clear(self) -> None:
         """Clear all messages in the session."""
@@ -143,6 +143,7 @@ class SessionManager:
             # Write metadata first
             metadata_line = {
                 "_type": "metadata",
+                "key": session.key,
                 "created_at": session.created_at.isoformat(),
                 "updated_at": session.updated_at.isoformat(),
                 "metadata": session.metadata,
@@ -192,9 +193,10 @@ class SessionManager:
                     if first_line:
                         data = json.loads(first_line)
                         if data.get("_type") == "metadata":
+                            key = data.get("key")
                             sessions.append(
                                 {
-                                    "key": path.stem.replace("_", ":"),
+                                    "key": key if isinstance(key, str) and key else path.stem.replace("_", ":"),
                                     "created_at": data.get("created_at"),
                                     "updated_at": data.get("updated_at"),
                                     "path": str(path),

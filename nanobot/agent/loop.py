@@ -53,6 +53,7 @@ from nanobot.process import CommandQueue, CommandLane
 from nanobot.agent.context_guard import ContextGuard, TokenCounter
 from nanobot.agent.executor import ToolExecutor
 from nanobot.utils.audit import log_event
+from nanobot.agent.context import SILENT_REPLY_TOKEN
 
 
 class AgentLoop:
@@ -388,6 +389,8 @@ class AgentLoop:
             result = await self._process_system_message(msg)
             if result:
                 result.content = self._filter_reasoning(result.content)
+                if self._is_silent_reply(result.content):
+                    return None
             return result
 
         if msg.trace_id:
@@ -395,8 +398,12 @@ class AgentLoop:
         else:
             logger.info(f"Processing message from {msg.channel}:{msg.sender_id}")
 
-        # Get or create session
-        session = self.sessions.get_or_create(msg.session_key)
+        # Get or create session (allow channel-level override for explicit "new session" flows)
+        override_session_key = msg.metadata.get("session_key")
+        effective_session_key = (
+            override_session_key if isinstance(override_session_key, str) and override_session_key else msg.session_key
+        )
+        session = self.sessions.get_or_create(effective_session_key)
 
         # Auto-compact history if needed
         await self._compact_history(session)
@@ -621,13 +628,17 @@ class AgentLoop:
         # Final check: if context is still too large, we might want to flag it
         # but for now we just finish.
 
+        # Filter reasoning before saving/sending
+        final_content = self._filter_reasoning(str(final_content))
+        if self._is_silent_reply(final_content):
+            session.add_message("user", msg.content)
+            self.sessions.save(session)
+            return None
+
         # Save to session
         session.add_message("user", msg.content)
         session.add_message("assistant", final_content)
         self.sessions.save(session)
-
-        # Filter reasoning before sending to user
-        final_content = self._filter_reasoning(str(final_content))
 
         return OutboundMessage(
             channel=msg.channel, 
@@ -903,6 +914,12 @@ class AgentLoop:
             final_content = "Background task completed."
 
         # Save to session (mark as system message in history)
+        final_content = self._filter_reasoning(str(final_content))
+        if self._is_silent_reply(final_content):
+            session.add_message("user", f"[System: {msg.sender_id}] {msg.content}")
+            self.sessions.save(session)
+            return None
+
         session.add_message("user", f"[System: {msg.sender_id}] {msg.content}")
         session.add_message("assistant", final_content)
         self.sessions.save(session)
@@ -1107,8 +1124,11 @@ Conversation History:
         filtered = re.sub(r"<think>.*$", "", filtered, flags=re.DOTALL).strip()
         
         if not filtered and content:
-            # If everything was filtered out, return the raw content to avoid silence
-            # This happens if the model puts its entire response in <think> tags
-            return f"[Thinking Process]\n{content}"
+            # Never leak hidden reasoning even if model returned only <think> blocks.
+            return "我已完成处理。"
             
         return filtered
+
+    def _is_silent_reply(self, content: str) -> bool:
+        """Whether content indicates no outbound user message should be sent."""
+        return isinstance(content, str) and content.strip() == SILENT_REPLY_TOKEN
