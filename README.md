@@ -116,7 +116,7 @@ Nanobot 默认通过本地 `8045/8046` 端口访问 Gemini 模型（由外部桥
     - 废弃了不可靠的 AppleScript 探测，全面接入 macOS 原生 `AppKit` 框架。
     - **Web App 深度识别**: 现在能精准分辨 Safari 和 Chrome 的 "Web App"（PWA），并反馈真实的 Web App ID，帮助 AI 更准确地匹配 Vision 自动化脚本。
 3.  **实时状态反馈 (Zero-Latency Feedback)**:
-    - 重构了 `start.sh`，利用 `tee` 流式输出，让您在启动时能实时看到日志滚动，消除“启动黑盒”感。
+    - 重构了启动入口为 `scripts/run_gateway.sh`，统一 `NANOBOT_HOME`、虚拟环境与日志路径，降低运行歧义。
     - 优化了审计日志 (`audit.log`) 的落盘逻辑，确保工具执行记录实时可见，调试更高效。
 
 ## 🖥️ 桌面自动化革命 (Desktop Automation)
