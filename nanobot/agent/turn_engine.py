@@ -60,8 +60,8 @@ class TurnEngine:
         repeat_count: int = 0
         total_tool_calls: int = 0
         tool_call_counts: dict[str, int] = {}
-        max_total_tool_calls = 8
-        per_tool_limits = {"mac_vision": 3, "exec": 3}
+        max_total_tool_calls = 30
+        per_tool_limits: dict[str, int] = {}
 
         while iteration < self.max_iterations:
             iteration += 1
@@ -207,20 +207,22 @@ class TurnEngine:
 
     def _build_forced_summary(self, *, messages: list[dict[str, Any]], reason: str) -> str:
         tool_msgs = [m for m in messages if m.get("role") == "tool"]
-        recent = tool_msgs[-6:]
+        tool_name_list = [str(m.get("name", "unknown")) for m in tool_msgs]
+        tool_stats: dict[str, int] = {}
+        for name in tool_name_list:
+            tool_stats[name] = tool_stats.get(name, 0) + 1
 
-        lines = [f"本轮已停止继续试探：{reason}。", "当前已完成的步骤摘要："]
-        if not recent:
-            lines.append("- 已执行若干步骤，但未形成可确认结果。")
+        lines = [f"本轮已停止继续试探：{reason}。"]
+        if tool_stats:
+            stats_text = "，".join(f"{name}×{count}" for name, count in sorted(tool_stats.items()))
+            lines.append(f"本轮工具调用统计：{stats_text}")
         else:
-            for m in recent:
-                tool_name = m.get("name", "unknown")
-                content = str(m.get("content", "")).strip().replace("\n", " ")
-                if len(content) > 120:
-                    content = content[:120] + "..."
-                lines.append(f"- {tool_name}: {content or '(no output)'}")
+            lines.append("本轮未形成有效工具结果。")
 
-        lines.append("建议：请给出更具体的目标（例如指定要点击的按钮/要读取的区域），我将按该目标继续执行。")
+        recent_tools = tool_name_list[-6:]
+        if recent_tools:
+            lines.append(f"最近步骤：{' -> '.join(recent_tools)}")
+
         return "\n".join(lines)
 
     def _format_tool_result_output(self, result: Any, include_severity: bool) -> str:

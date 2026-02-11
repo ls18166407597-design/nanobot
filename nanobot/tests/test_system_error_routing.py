@@ -23,12 +23,12 @@ class ExplodingAgent(AgentLoop):
 
 
 @pytest.mark.asyncio
-async def test_system_error_routes_to_origin():
+async def test_system_error_routes_to_origin(tmp_path: Path):
     bus = MessageBus()
     agent = ExplodingAgent(
         bus=bus,
         provider=FakeProvider(),
-        workspace=Path("/Users/liusong/Downloads/nanobot/workspace"),
+        workspace=tmp_path,
     )
 
     msg = InboundMessage(
@@ -49,12 +49,12 @@ async def test_system_error_routes_to_origin():
 
 
 @pytest.mark.asyncio
-async def test_system_error_routes_to_cli_when_no_origin_or_prefix():
+async def test_system_error_routes_to_cli_when_no_origin_or_prefix(tmp_path: Path):
     bus = MessageBus()
     agent = ExplodingAgent(
         bus=bus,
         provider=FakeProvider(),
-        workspace=Path("/Users/liusong/Downloads/nanobot/workspace"),
+        workspace=tmp_path,
     )
 
     msg = InboundMessage(
