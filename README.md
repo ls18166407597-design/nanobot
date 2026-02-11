@@ -170,6 +170,17 @@ workspace/
 - 🗺️ **[路线图](docs/路线图.md)**
 - 🏗️ **[项目结构](docs/项目结构.md)**
 
+## 核心改造快照 (2026-02-11)
+
+本轮聚焦“主干减重、边界清晰、可回归”：
+
+- 回合执行引擎拆分：`AgentLoop` 中的执行状态机抽离为 `nanobot/agent/turn_engine.py`。
+- 模型路由拆分：Provider failover 抽离为 `nanobot/agent/provider_router.py`。
+- 工具装配拆分：默认工具注册抽离为 `nanobot/agent/tool_bootstrapper.py`。
+- 会话服务抽分：会话切换与会话列表抽离为 `nanobot/session/service.py`。
+- Telegram 通道拆分：格式化与媒体处理拆到 `nanobot/channels/telegram_format.py` 与 `nanobot/channels/telegram_media.py`。
+- 契约文档与测试：新增 `ARCHITECTURE.md` 核心契约章节与 `nanobot/tests/test_contracts.py`。
+
 ---
 <p align="center">
   <em> 感谢您使用 ✨ nanobot！您的私人高级行政秘书。</em>

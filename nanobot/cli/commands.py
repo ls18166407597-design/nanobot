@@ -8,6 +8,7 @@ from rich.console import Console
 from rich.table import Table
 
 from nanobot import __logo__, __version__
+from nanobot.process import CommandLane
 
 app = typer.Typer(
     name="nanobot",

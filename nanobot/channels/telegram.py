@@ -1,10 +1,7 @@
 """Telegram channel implementation using python-telegram-bot."""
 
 import asyncio
-import json
-import re
 from datetime import datetime
-from uuid import uuid4
 
 from loguru import logger
 from telegram import BotCommand, Update
@@ -20,104 +17,11 @@ from telegram.request import HTTPXRequest
 from nanobot.bus.events import OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
+from nanobot.channels.telegram_format import markdown_to_telegram_html, split_message
+from nanobot.channels.telegram_media import build_message_content
 from nanobot.config.schema import TelegramConfig
-from nanobot.utils.helpers import get_data_path, get_sessions_path, safe_filename
-
-
-def _markdown_to_telegram_html(text: str) -> str:
-    """
-    Convert markdown to Telegram-safe HTML.
-    """
-    if not text:
-        return ""
-
-    # 1. Extract and protect code blocks (preserve content from other processing)
-    code_blocks: list[str] = []
-
-    def save_code_block(m: re.Match) -> str:
-        code_blocks.append(m.group(1))
-        return f"\x00CB{len(code_blocks) - 1}\x00"
-
-    text = re.sub(r"```[\w]*\n?([\s\S]*?)```", save_code_block, text)
-
-    # 2. Extract and protect inline code
-    inline_codes: list[str] = []
-
-    def save_inline_code(m: re.Match) -> str:
-        inline_codes.append(m.group(1))
-        return f"\x00IC{len(inline_codes) - 1}\x00"
-
-    text = re.sub(r"`([^`]+)`", save_inline_code, text)
-
-    # 3. Headers # Title -> just the title text
-    text = re.sub(r"^#{1,6}\s+(.+)$", r"\1", text, flags=re.MULTILINE)
-
-    # 4. Blockquotes > text -> just the text (before HTML escaping)
-    text = re.sub(r"^>\s*(.*)$", r"\1", text, flags=re.MULTILINE)
-
-    # 5. Escape HTML special characters
-    text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
-    # 6. Links [text](url) - must be before bold/italic to handle nested cases
-    text = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r'<a href="\2">\1</a>', text)
-
-    # 7. Bold **text** or __text__
-    text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
-    text = re.sub(r"__(.+?)__", r"<b>\1</b>", text)
-
-    # 8. Italic _text_ (avoid matching inside words like some_var_name)
-    text = re.sub(r"(?<![a-zA-Z0-9])_([^_]+)_(?![a-zA-Z0-9])", r"<i>\1</i>", text)
-
-    # 9. Strikethrough ~~text~~
-    text = re.sub(r"~~(.+?)~~", r"<s>\1</s>", text)
-
-    # 10. Bullet lists - item -> • item
-    text = re.sub(r"^[-*]\s+", "• ", text, flags=re.MULTILINE)
-
-    # 11. Restore inline code with HTML tags
-    for i, code in enumerate(inline_codes):
-        # Escape HTML in code content
-        escaped = code.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        text = text.replace(f"\x00IC{i}\x00", f"<code>{escaped}</code>")
-
-    # 12. Restore code blocks with HTML tags
-    for i, code in enumerate(code_blocks):
-        # Escape HTML in code content
-        escaped = code.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        text = text.replace(f"\x00CB{i}\x00", f"<pre><code>{escaped}</code></pre>")
-
-    return text
-
-
-def _split_message(text: str, limit: int = 4000) -> list[str]:
-    """
-    Split a message into chunks within the 4096 character limit.
-    Tries to split at double newlines, then single newlines.
-    """
-    if len(text) <= limit:
-        return [text]
-
-    chunks = []
-    remaining = text
-    while len(remaining) > limit:
-        # Try splitting at double newline
-        split_at = remaining.rfind("\n\n", 0, limit)
-        if split_at == -1:
-            # Try splitting at single newline
-            split_at = remaining.rfind("\n", 0, limit)
-
-        if split_at == -1:
-            # Hard split at limit
-            split_at = limit
-
-        chunks.append(remaining[:split_at].strip())
-        remaining = remaining[split_at:].strip()
-
-    if remaining:
-        chunks.append(remaining)
-
-    return chunks
-
+from nanobot.session.service import SessionService
+from nanobot.utils.helpers import get_data_path
 
 class TelegramChannel(BaseChannel):
     """
@@ -134,7 +38,7 @@ class TelegramChannel(BaseChannel):
         self.groq_api_key = groq_api_key
         self._app: Application | None = None
         self._chat_ids: dict[str, int] = {}  # Map sender_id to chat_id for replies
-        self._active_sessions: dict[str, str] = {}  # chat_id -> session_key override
+        self._session_service = SessionService(channel_name=self.name)
 
     async def start(self) -> None:
         """Start the Telegram bot with long polling."""
@@ -183,6 +87,7 @@ class TelegramChannel(BaseChannel):
             self._app.add_handler(CommandHandler("help", self._on_help))
             self._app.add_handler(CommandHandler("status", self._on_status))
             self._app.add_handler(CommandHandler("history", self._on_history))
+            self._app.add_handler(CommandHandler("use", self._on_use))
             self._app.add_handler(CommandHandler("new", self._on_new))
             self._app.add_handler(CommandHandler("clear", self._on_clear))
             self._app.add_handler(MessageHandler(filters.COMMAND, self._on_unknown_command))
@@ -202,6 +107,7 @@ class TelegramChannel(BaseChannel):
                     BotCommand("help", "查看可用命令"),
                     BotCommand("status", "查看机器人状态"),
                     BotCommand("history", "查看会话历史"),
+                    BotCommand("use", "切换到指定会话"),
                     BotCommand("new", "开启新会话"),
                     BotCommand("clear", "清空当前会话"),
                 ]
@@ -248,11 +154,11 @@ class TelegramChannel(BaseChannel):
             chat_id = int(msg.chat_id)
             # 1. Segment the message if it's too long
             # We use a conservative limit of 3500 to leave room for HTML tags
-            segments = _split_message(msg.content, limit=3500)
+            segments = split_message(msg.content, limit=3500)
             
             for i, segment in enumerate(segments):
                 # Convert markdown to Telegram HTML for each segment
-                html_content = _markdown_to_telegram_html(segment)
+                html_content = markdown_to_telegram_html(segment)
                 
                 # Basic retry logic for transient network issues
                 for attempt in range(3):
@@ -298,6 +204,7 @@ class TelegramChannel(BaseChannel):
             "/help - 查看命令说明\n"
             "/status - 查看机器人状态\n"
             "/history - 查看会话历史\n"
+            "/use <session_key> - 切换到指定会话\n"
             "/new - 开启新会话\n"
             "/clear - 清空当前会话"
         )
@@ -308,7 +215,7 @@ class TelegramChannel(BaseChannel):
             return
         data_dir = get_data_path()
         chat_id = str(update.message.chat_id)
-        active_session = self._get_active_session_key(chat_id)
+        active_session = self._session_service.get_active_session_key(chat_id)
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         await update.message.reply_text(
             f"状态: 在线\n时间: {now}\n数据目录: {data_dir}\n当前会话: {active_session}"
@@ -319,8 +226,7 @@ class TelegramChannel(BaseChannel):
         if not update.message:
             return
         chat_id = str(update.message.chat_id)
-        new_key = self._new_session_key(chat_id)
-        self._active_sessions[chat_id] = new_key
+        self._session_service.open_new_session(chat_id)
         await update.message.reply_text("已开启新会话。后续消息将使用全新上下文。")
 
     async def _on_history(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -328,33 +234,14 @@ class TelegramChannel(BaseChannel):
         if not update.message:
             return
         chat_id = str(update.message.chat_id)
-        base = safe_filename(f"{self.name}_{chat_id}")
-        sessions_dir = get_sessions_path()
-        current = self._get_active_session_key(chat_id)
-
-        entries: list[tuple[str, str]] = []  # (key, updated_at)
-        for path in sessions_dir.glob(f"{base}*.jsonl"):
-            key = path.stem
-            updated = ""
-            try:
-                with open(path, "r", encoding="utf-8") as f:
-                    first = f.readline().strip()
-                if first:
-                    data = json.loads(first)
-                    if data.get("_type") == "metadata":
-                        key = data.get("key") or key
-                        updated = data.get("updated_at") or ""
-            except Exception:
-                pass
-            entries.append((str(key), str(updated)))
-
+        current = self._session_service.get_active_session_key(chat_id)
+        entries = self._session_service.list_recent_sessions(chat_id, limit=10)
         if not entries:
             await update.message.reply_text("当前 chat 暂无会话历史。")
             return
 
-        entries.sort(key=lambda x: x[1], reverse=True)
         lines = ["最近会话（最多 10 条）:"]
-        for key, updated in entries[:10]:
+        for key, updated in entries:
             marker = " [当前]" if key == current else ""
             ts = updated if updated else "-"
             lines.append(f"- {key}{marker} | {ts}")
@@ -365,33 +252,33 @@ class TelegramChannel(BaseChannel):
         if not update.message:
             return
         chat_id = str(update.message.chat_id)
-        session_key = self._get_active_session_key(chat_id)
-        safe_key = safe_filename(session_key.replace(":", "_"))
-        session_path = get_sessions_path() / f"{safe_key}.jsonl"
-        deleted = False
-        if session_path.exists():
-            session_path.unlink()
-            deleted = True
-        self._active_sessions[chat_id] = self._new_session_key(chat_id)
+        deleted, _ = self._session_service.clear_current_session(chat_id)
         if deleted:
             await update.message.reply_text("当前会话已清空，并已切换到新会话。")
         else:
             await update.message.reply_text("当前会话文件不存在，已切换到新会话。")
+
+    async def _on_use(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /use command: switch active session to an existing session key."""
+        if not update.message:
+            return
+        chat_id = str(update.message.chat_id)
+        args = context.args or []
+        if not args:
+            await update.message.reply_text("用法: /use <session_key>")
+            return
+        session_key = " ".join(args).strip()
+        ok = self._session_service.use_session(chat_id, session_key)
+        if ok:
+            await update.message.reply_text("已切换到指定会话。")
+        else:
+            await update.message.reply_text("切换失败：会话不存在，或不属于当前 chat。")
 
     async def _on_unknown_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle unknown slash commands."""
         if not update.message:
             return
         await update.message.reply_text("未识别的命令。输入 /help 查看可用命令。")
-
-    def _get_active_session_key(self, chat_id: str) -> str:
-        """Get active session key for a chat."""
-        return self._active_sessions.get(chat_id, f"{self.name}:{chat_id}")
-
-    def _new_session_key(self, chat_id: str) -> str:
-        """Create a new unique session key for a chat."""
-        ts = datetime.now().strftime("%Y%m%d%H%M%S")
-        return f"{self.name}:{chat_id}#s{ts}_{uuid4().hex[:6]}"
 
     async def _on_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle incoming messages (text, photos, voice, documents)."""
@@ -410,70 +297,7 @@ class TelegramChannel(BaseChannel):
         # Store chat_id for replies
         self._chat_ids[sender_id] = chat_id
 
-        # Build content from text and/or media
-        content_parts = []
-        media_paths = []
-
-        # Text content
-        if message.text:
-            content_parts.append(message.text)
-        if message.caption:
-            content_parts.append(message.caption)
-
-        # Handle media files
-        media_file = None
-        media_type = None
-
-        if message.photo:
-            media_file = message.photo[-1]  # Largest photo
-            media_type = "image"
-        elif message.voice:
-            media_file = message.voice
-            media_type = "voice"
-        elif message.audio:
-            media_file = message.audio
-            media_type = "audio"
-        elif message.document:
-            media_file = message.document
-            media_type = "file"
-
-        # Download media if present
-        if media_file and self._app:
-            try:
-                file = await self._app.bot.get_file(media_file.file_id)
-                ext = self._get_extension(media_type, getattr(media_file, "mime_type", None))
-
-                # Save to workspace/media/
-                from pathlib import Path
-
-                media_dir = get_data_path() / "media"
-                media_dir.mkdir(parents=True, exist_ok=True)
-
-                file_path = media_dir / f"{media_file.file_id[:16]}{ext}"
-                await file.download_to_drive(str(file_path))
-
-                media_paths.append(str(file_path))
-
-                # Handle voice transcription
-                if media_type == "voice" or media_type == "audio":
-                    from nanobot.providers.transcription import GroqTranscriptionProvider
-
-                    transcriber = GroqTranscriptionProvider(api_key=self.groq_api_key)
-                    transcription = await transcriber.transcribe(file_path)
-                    if transcription:
-                        logger.info(f"Transcribed {media_type}: {transcription[:50]}...")
-                        content_parts.append(f"[transcription: {transcription}]")
-                    else:
-                        content_parts.append(f"[{media_type}: {file_path}]")
-                else:
-                    content_parts.append(f"[{media_type}: {file_path}]")
-
-                logger.debug(f"Downloaded {media_type} to {file_path}")
-            except Exception as e:
-                logger.error(f"Failed to download media: {e}")
-                content_parts.append(f"[{media_type}: download failed]")
-
-        content = "\n".join(content_parts) if content_parts else "[empty message]"
+        content, media_paths = await build_message_content(message, self._app, self.groq_api_key)
 
         logger.debug(f"Telegram message from {sender_id}: {content[:50]}...")
 
@@ -483,29 +307,12 @@ class TelegramChannel(BaseChannel):
             chat_id=str(chat_id),
             content=content,
             media=media_paths,
+            session_key_override=self._session_service.get_active_session_key(str(chat_id)),
             metadata={
                 "message_id": message.message_id,
                 "user_id": user.id,
                 "username": user.username,
                 "first_name": user.first_name,
                 "is_group": message.chat.type != "private",
-                "session_key": self._get_active_session_key(str(chat_id)),
             },
         )
-
-    def _get_extension(self, media_type: str, mime_type: str | None) -> str:
-        """Get file extension based on media type."""
-        if mime_type:
-            ext_map = {
-                "image/jpeg": ".jpg",
-                "image/png": ".png",
-                "image/gif": ".gif",
-                "audio/ogg": ".ogg",
-                "audio/mpeg": ".mp3",
-                "audio/mp4": ".m4a",
-            }
-            if mime_type in ext_map:
-                return ext_map[mime_type]
-
-        type_map = {"image": ".jpg", "voice": ".ogg", "audio": ".mp3", "file": ""}
-        return type_map.get(media_type, "")

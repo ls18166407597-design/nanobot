@@ -1,7 +1,5 @@
 import asyncio
-import hashlib
 import json
-import time
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -18,33 +16,9 @@ from loguru import logger
 from nanobot.agent.context import ContextBuilder
 from nanobot.providers.factory import ProviderFactory
 from nanobot.agent.tools.cron import CronTool
-from nanobot.agent.tools.filesystem import (
-    EditFileTool,
-    ListDirTool,
-    ReadFileTool,
-    WriteFileTool,
-)
-from nanobot.agent.tools.github import GitHubTool
-from nanobot.agent.tools.gmail import GmailTool
-from nanobot.agent.tools.qq_mail import QQMailTool
-from nanobot.agent.tools.knowledge import KnowledgeTool
-from nanobot.agent.tools.mac import MacTool
-from nanobot.agent.tools.mac_vision import MacVisionTool
-from nanobot.agent.tools.memory import MemoryTool
 from nanobot.agent.tools.message import MessageTool
 from nanobot.agent.tools.registry import ToolRegistry
-from nanobot.agent.tools.shell import ExecTool
-from nanobot.agent.tools.skills import SkillsTool
-from nanobot.agent.tools.browser import BrowserTool
-from nanobot.agent.tools.task import TaskTool
-from nanobot.agent.task_manager import TaskManager
 from nanobot.agent.models import ModelRegistry
-from nanobot.agent.tools.provider import ProviderTool
-from nanobot.agent.tools.weather import WeatherTool
-from nanobot.agent.tools.tavily import TavilyTool
-from nanobot.agent.tools.tianapi import TianAPITool
-from nanobot.agent.tools.tushare import TushareTool
-from nanobot.agent.tools.feishu import FeishuTool
 from nanobot.bus.events import InboundMessage, OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.providers.base import LLMProvider, LLMResponse, ToolCallRequest
@@ -52,8 +26,10 @@ from nanobot.session.manager import SessionManager
 from nanobot.process import CommandQueue, CommandLane
 from nanobot.agent.context_guard import ContextGuard, TokenCounter
 from nanobot.agent.executor import ToolExecutor
-from nanobot.utils.audit import log_event
 from nanobot.agent.context import SILENT_REPLY_TOKEN
+from nanobot.agent.turn_engine import TurnEngine
+from nanobot.agent.provider_router import ProviderRouter
+from nanobot.agent.tool_bootstrapper import ToolBootstrapper
 
 
 class AgentLoop:
@@ -67,6 +43,11 @@ class AgentLoop:
     4. Executes tool calls
     5. Sends responses back
     """
+    SELF_CORRECTION_PROMPT = (
+        "系统检测到你正在重复执行相同的工具调用且未取得进展。可能原因是之前的工具输出未满足预期。"
+        "请不要再次尝试相同操作，改用其他思路（例如检查文件是否存在、调整搜索词、或向用户确认需求）。"
+    )
+    LOOP_BREAK_REPLY = "抱歉，我陷入了重复执行的循环并未能恢复。请检查当前指令是否超出权限，或提供更明确的需求。"
 
     def __init__(
         self,
@@ -108,10 +89,30 @@ class AgentLoop:
         self.sessions = SessionManager(workspace)
         self.tools = ToolRegistry()
         self.executor = ToolExecutor(self.tools)
+        self.turn_engine = TurnEngine(
+            context=self.context,
+            executor=self.executor,
+            model=self.model,
+            max_iterations=self.max_iterations,
+            get_tools_definitions=self.tools.get_definitions,
+            chat_with_failover=self._chat_with_failover,
+            parse_tool_calls_from_text=self._parse_tool_calls_from_text,
+            summarize_messages=self._summarize_messages,
+            self_correction_prompt=self.SELF_CORRECTION_PROMPT,
+            loop_break_reply=self.LOOP_BREAK_REPLY,
+        )
         
         # Initialize Model Registry
         self.model_registry = ModelRegistry()
         self.providers_config = providers_config
+        self.provider_router = ProviderRouter(
+            provider=self.provider,
+            model=self.model,
+            model_registry=self.model_registry,
+            max_tokens=self.max_tokens,
+            temperature=self.temperature,
+            pulse_callback=self._send_pulse_message,
+        )
 
         self._last_busy_notice_time: float = 0
         self._busy_debounce_seconds: float = self.tools_config.busy_notice_debounce_seconds
@@ -178,115 +179,20 @@ class AgentLoop:
 
     def _register_default_tools(self) -> None:
         """Register the default set of tools."""
-        def _tool_enabled(name: str) -> bool:
-            if self.tools_config.enabled_tools is not None:
-                return name in self.tools_config.enabled_tools
-            if self.tools_config.disabled_tools:
-                return name not in self.tools_config.disabled_tools
-            return True
-
-        # File tools (restrict to workspace if configured)
-        allowed_dir = self.workspace if self.restrict_to_workspace else None
-        if _tool_enabled("read_file"):
-            self.tools.register(ReadFileTool(allowed_dir=allowed_dir))
-        if _tool_enabled("write_file"):
-            self.tools.register(WriteFileTool(allowed_dir=allowed_dir))
-        if _tool_enabled("edit_file"):
-            self.tools.register(EditFileTool(allowed_dir=allowed_dir))
-        if _tool_enabled("list_dir"):
-            self.tools.register(ListDirTool(allowed_dir=allowed_dir))
-
-        # Shell tool
-        if _tool_enabled("exec"):
-            self.tools.register(
-                ExecTool(
-                    working_dir=str(self.workspace),
-                    timeout=self.exec_config.timeout,
-                    restrict_to_workspace=self.restrict_to_workspace,
-                    provider=self.provider,
-                    brain_config=self.brain_config,
-                )
-            )
-
-        # Web tools - Re-enabled for single-agent use
-        if _tool_enabled("browser"):
-            self.tools.register(BrowserTool(proxy=self.web_proxy))
-
-        # Message tool
-        if _tool_enabled("message"):
-            message_tool = MessageTool(send_callback=self.bus.publish_outbound)
-            self.tools.register(message_tool)
-
-        # Task storage path (used by both CronTool and TaskTool)
-        from nanobot.config.loader import get_data_dir
-        task_storage_path = get_data_dir() / "tasks.json"
-
-        # Cron tool (for scheduling)
-        if self.cron_service and _tool_enabled("cron"):
-            self.tools.register(CronTool(self.cron_service, task_storage_path=task_storage_path))
-
-        # Mail tools
-        if _tool_enabled("gmail"):
-            self.tools.register(GmailTool())
-        if _tool_enabled("qq_mail"):
-            self.tools.register(QQMailTool())
-
-        # Mac tool
-        if _tool_enabled("mac_control"):
-            self.tools.register(MacTool(confirm_mode=self.mac_confirm_mode))
-        if _tool_enabled("mac_vision"):
-            self.tools.register(MacVisionTool(confirm_mode=self.mac_confirm_mode))
-
-        # GitHub tool
-        if _tool_enabled("github"):
-            self.tools.register(GitHubTool())
-
-        # Knowledge tool
-        if _tool_enabled("knowledge_base"):
-            self.tools.register(KnowledgeTool())
-
-        # Memory tool (active management)
-        if _tool_enabled("memory"):
-            self.tools.register(MemoryTool(workspace=self.workspace))
-
-        # Provider tool (manage LLM providers)
-        if _tool_enabled("provider"):
-            self.tools.register(ProviderTool(registry=self.model_registry))
-
-        # Weather tool
-        if _tool_enabled("weather"):
-            self.tools.register(WeatherTool())
-
-        # Tavily tool
-        if _tool_enabled("tavily"):
-            self.tools.register(TavilyTool())
-
-        # TianAPI tool
-        if _tool_enabled("tianapi"):
-            self.tools.register(TianAPITool())
-
-        # Tushare tool
-        if _tool_enabled("tushare"):
-            self.tools.register(TushareTool())
-
-        # Feishu tool
-        if _tool_enabled("feishu"):
-            self.tools.register(FeishuTool())
-
-        # Skills tool (Plaza/management)
-        if _tool_enabled("skills"):
-            self.tools.register(
-                SkillsTool(
-                    workspace=self.workspace,
-                    search_func=None,
-                )
-            )
-
-        # Task tool (named task management)
-        task_manager = TaskManager(storage_path=task_storage_path)
-        exec_tool = self.tools.get("exec")
-        if exec_tool and _tool_enabled("task"):
-            self.tools.register(TaskTool(task_manager=task_manager, exec_tool=exec_tool))
+        ToolBootstrapper(
+            tools=self.tools,
+            workspace=self.workspace,
+            restrict_to_workspace=self.restrict_to_workspace,
+            exec_config=self.exec_config,
+            provider=self.provider,
+            brain_config=self.brain_config,
+            web_proxy=self.web_proxy,
+            bus_publish_outbound=self.bus.publish_outbound,
+            cron_service=self.cron_service,
+            model_registry=self.model_registry,
+            tools_config=self.tools_config,
+            mac_confirm_mode=self.mac_confirm_mode,
+        ).register_default_tools()
 
     async def run(self) -> None:
         """Run the agent loop, processing messages from the bus."""
@@ -398,12 +304,8 @@ class AgentLoop:
         else:
             logger.info(f"Processing message from {msg.channel}:{msg.sender_id}")
 
-        # Get or create session (allow channel-level override for explicit "new session" flows)
-        override_session_key = msg.metadata.get("session_key")
-        effective_session_key = (
-            override_session_key if isinstance(override_session_key, str) and override_session_key else msg.session_key
-        )
-        session = self.sessions.get_or_create(effective_session_key)
+        # Get or create session (explicit override is supported at InboundMessage level).
+        session = self.sessions.get_or_create(msg.session_key)
 
         # Auto-compact history if needed
         await self._compact_history(session)
@@ -412,8 +314,6 @@ class AgentLoop:
         message_tool = self.tools.get("message")
         if isinstance(message_tool, MessageTool):
             message_tool.set_context(msg.channel, msg.chat_id)
-
-        cron_tool = self.tools.get("cron")
 
         cron_tool = self.tools.get("cron")
         if isinstance(cron_tool, CronTool):
@@ -428,199 +328,14 @@ class AgentLoop:
             chat_id=msg.chat_id,
         )
 
-        # Agent loop
-        iteration = 0
-        final_content = None
-        seen_tool_call_ids: set[str] = set()
-        seen_tool_call_hashes: set[str] = set()
-        last_tool_signature: str | None = None
-        repeat_count: int = 0
-
-        while iteration < self.max_iterations:
-            iteration += 1
-            logger.debug(f"[TraceID: {msg.trace_id}] Starting iteration {iteration}")
-
-            # Call LLM with failover support
-            response = await self._chat_with_failover(
-                messages=messages,
-                tools=self.tools.get_definitions()
-            )
-
-            logger.debug(f"[TraceID: {msg.trace_id}] LLM responded. has_tool_calls: {response.has_tool_calls}, content length: {len(response.content) if response.content else 0}")
-
-            # Handle tool calls (formal or embedded in text)
-            tool_calls = response.tool_calls
-            if not tool_calls and response.content:
-                # Fallback: try to parse tool calls from text content
-                tool_calls = self._parse_tool_calls_from_text(response.content)
-
-            if tool_calls:
-                # Loop detection: check if we are repeating the exact same tool calls
-                # This often happens with Gemini proxies when they lose context
-                current_ids = [tc.id for tc in tool_calls if tc.id]
-                
-                # SHA-256 hash of tool name + arguments for content-based detection
-                current_hashes = []
-                for tc in tool_calls:
-                    # Sort arguments to ensure consistent hashing
-                    args_json = json.dumps(tc.arguments, sort_keys=True)
-                    tc_hash = hashlib.sha256(f"{tc.name}:{args_json}".encode()).hexdigest()
-                    current_hashes.append(tc_hash)
-
-                # Check for strict loops (repetitive tool calls)
-                # We block if ALL current calls have been seen before in this turn
-                # Note: guard against empty id list to avoid false positives
-                id_loop = bool(current_ids) and len([tid for tid in current_ids if tid in seen_tool_call_ids]) == len(current_ids)
-                hash_loop = len([h for h in current_hashes if h in seen_tool_call_hashes]) == len(current_hashes)
-
-                # Track consecutive repetition for loop detection
-                current_signature = ",".join(sorted(current_hashes))
-                if current_signature == last_tool_signature:
-                    repeat_count += 1
-                else:
-                    repeat_count = 1
-                    last_tool_signature = current_signature
-
-                # Allow some progress but block fixed patterns
-                is_strict_loop = iteration > 3 and repeat_count >= 3 and (id_loop or hash_loop)
-
-                if is_strict_loop:
-                    if iteration < self.max_iterations - 1:
-                        logger.warning(f"[TraceID: {msg.trace_id}] Loop detected! Injecting self-correction prompt.")
-                        messages.append({
-                            "role": "system",
-                            "content": "系统检测到你正在重复执行相同的工具调用且未取得进展。可能原因是之前的工具输出未满足预期。请不要再次尝试相同操作，改用其他思路（例如检查文件是否存在、调整搜索词、或向用户确认需求）。"
-                        })
-                        # Allow one more iteration to recover
-                        seen_tool_call_hashes.clear()
-                        seen_tool_call_ids.clear()
-                        continue
-                    else:
-                        logger.error(f"[TraceID: {msg.trace_id}] Permanent loop detected after retry. Breaking turn.")
-                        final_content = response.content or "抱歉，我陷入了重复执行的循环并未能恢复。请检查当前指令是否超出权限，或提供更明确的需求。"
-                        break
-                
-                # Add to seen
-                for tid in current_ids:
-                    if tid:
-                        seen_tool_call_ids.add(tid)
-                for h in current_hashes:
-                    seen_tool_call_hashes.add(h)
-
-                # Add assistant message with tool calls
-                tool_call_dicts = [
-                    {
-                        "id": tc.id,
-                        "type": "function",
-                        "function": {
-                            "name": tc.name,
-                            "arguments": json.dumps(tc.arguments),  # Must be JSON string
-                        },
-                    }
-                    for tc in tool_calls
-                ]
-                messages = self.context.add_assistant_message(
-                    messages, response.content, tool_call_dicts
-                )
-
-                # Execute tools in parallel
-                tool_coros = []
-                tool_starts: dict[str, float] = {}
-                for tool_call in tool_calls:
-                    args_str = json.dumps(tool_call.arguments)
-                    logger.debug(f"[TraceID: {msg.trace_id}] Executing tool: {tool_call.name} with arguments: {args_str}")
-                    tool_starts[tool_call.id] = time.perf_counter()
-                    log_event({
-                        "type": "tool_start",
-                        "trace_id": msg.trace_id,
-                        "tool": tool_call.name,
-                        "tool_call_id": tool_call.id,
-                        "args_keys": list(tool_call.arguments.keys()),
-                    })
-                    tool_coros.append(self.executor.execute(tool_call.name, tool_call.arguments))
-
-                # Wait for all tools to complete
-                results = await asyncio.gather(*tool_coros, return_exceptions=True)
-
-                from nanobot.agent.tools.base import ToolResult, ToolSeverity
-
-                # Add results to messages
-                for tool_call, result in zip(tool_calls, results):
-                    if isinstance(result, Exception):
-                        import traceback
-                        tb = traceback.format_exc()
-                        logger.error(f"[TraceID: {msg.trace_id}] Tool {tool_call.name} failed with traceback:\n{tb}")
-                        result_str = f"Error executing tool {tool_call.name}: {str(result)}"
-                    elif isinstance(result, ToolResult):
-                        result_str = result.output
-                        # Append remedy to help the model recover
-                        if result.remedy:
-                            result_str = f"{result_str}\n\n[系统及工具建议: {result.remedy}]"
-                        # Surface severity / retry / confirmation hints
-                        if result.severity in (ToolSeverity.WARN, ToolSeverity.ERROR, ToolSeverity.FATAL):
-                            result_str = f"[severity:{result.severity}]\n{result_str}"
-                        if result.should_retry:
-                            result_str = f"{result_str}\n\n[系统提示: 建议重试该工具调用，或调整参数后重试。]"
-                        if result.requires_user_confirmation:
-                            result_str = f"{result_str}\n\n[系统提示: 该操作需要用户确认后再执行。]"
-                    else:
-                        result_str = str(result)
-                    
-                    # Log first 200 chars safely
-                    log_content = ""
-                    if result_str and isinstance(result_str, str):
-                        log_content = str(result_str)[:200]
-                    logger.debug(f"Tool {tool_call.name} result: {log_content}...")
-                    duration_s = None
-                    if tool_call.id in tool_starts:
-                        val = time.perf_counter() - tool_starts[tool_call.id]
-                        duration_s = round(float(val), 4)
-                    log_event({
-                        "type": "tool_end",
-                        "trace_id": msg.trace_id,
-                        "tool": tool_call.name,
-                        "tool_call_id": tool_call.id,
-                        "status": "error" if isinstance(result, Exception) else "ok",
-                        "duration_s": duration_s,
-                        "result_len": len(result_str),
-                    })
-                        
-                    messages = self.context.add_tool_result(
-                        messages, tool_call.id, tool_call.name, result_str
-                    )
-
-                # TRIGGER COMPACTION: Check context size after tool results
-                guard = ContextGuard(model=self.model)
-                evaluation = guard.evaluate(messages)
-                if evaluation["should_compact"]:
-                    logger.info(f"[TraceID: {msg.trace_id}] Context utilization high ({evaluation['utilization']:.2f}). Triggering compaction...")
-                    # Identify messages to summarize (system/bootstrap usually at start, we keep them)
-                    # For now, we summarize everything except system prompt and last 5 tool results/messages
-                    keep_recent = 10
-                    to_sum = [m for m in messages if m.get("role") != "system"]
-                    if len(to_sum) > keep_recent:
-                        prefix_msgs = [m for m in messages if m.get("role") == "system"]
-                        sum_msgs = messages[len(prefix_msgs):-keep_recent]
-                        recent_msgs = messages[-keep_recent:]
-                        
-                        summary = await self._summarize_messages(sum_msgs)
-                        if summary:
-                            # CRITICAL: Strip old summaries from prefix messages before adding new one
-                            new_prefix = []
-                            for m in prefix_msgs:
-                                content = m.get("content", "")
-                                if isinstance(content, str) and "Previous conversation summary:" in content:
-                                    continue
-                                new_prefix.append(m)
-
-                            messages = new_prefix + [
-                                {"role": "system", "content": f"Previous conversation summary: {summary}"}
-                            ] + recent_msgs
-                            logger.info(f"[TraceID: {msg.trace_id}] Context compacted via LLM summary (and deduped).")
-            else:
-                # No tool calls, we're done
-                final_content = response.content
-                break
+        final_content = await self.turn_engine.run(
+            messages=messages,
+            trace_id=msg.trace_id,
+            parse_calls_from_text=True,
+            include_severity=True,
+            parallel_tool_exec=True,
+            compact_after_tools=True,
+        )
 
         if final_content is None:
             final_content = "我已经完成了处理，但暂时没有需要回复的具体内容。"
@@ -650,110 +365,7 @@ class AgentLoop:
     async def _chat_with_failover(
         self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None
     ) -> "LLMResponse":
-        """
-        Call LLM with automatic failover to other registered providers.
-        """
-        from nanobot.providers.factory import ProviderFactory
-
-        # List of candidate providers
-        candidates = []
-
-        # 1. Determine the "Real" Primary Provider for THIS model
-        primary_provider = self.provider
-        primary_model = self.model
-        primary_name = "primary"
-
-        if self.model_registry:
-            # Check if there's a specialized provider in the registry for this model
-            # that's better than our default 'primary' one.
-            registry_match = None
-            for p_info in self.model_registry.providers.values():
-                if p_info.default_model == self.model or self.model in p_info.models or p_info.name == self.model:
-                    registry_match = p_info
-                    break
-            
-            if registry_match and registry_match.base_url != self.provider.api_base:
-                logger.debug(f"Switching primary provider to registry match '{registry_match.name}' for model '{self.model}'")
-                try:
-                    primary_provider = ProviderFactory.get_provider(
-                        model=registry_match.default_model or self.model,
-                        api_key=registry_match.api_key,
-                        api_base=registry_match.base_url
-                    )
-                    primary_name = registry_match.name
-                except Exception as e:
-                    logger.warning(f"Failed to switch to specific provider for {self.model}: {e}")
-
-        candidates.append({
-            "name": primary_name,
-            "provider": primary_provider,
-            "model": primary_model
-        })
-        
-        # 2. Registry providers (excluding primary if duplicated)
-        # 2. Registry providers (excluding primary if duplicated)
-        if self.model_registry:
-            # Use get_active_providers to filter out cooled-down providers
-            active_infos = self.model_registry.get_active_providers(model=self.model)
-            
-            for p_info in active_infos:
-                # Avoid re-adding primary if already there (heuristic check)
-                if p_info.base_url == self.provider.api_base and p_info.default_model == self.model:
-                    # Also check if primary matches this provider to verify cooldown?
-                    # For now just skip to avoid duplication
-                    continue
-                
-                # Create a temporary provider for fallback
-                try:
-                    fallback_provider = ProviderFactory.get_provider(
-                        model=p_info.default_model or (p_info.models[0] if p_info.models else self.model),
-                        api_key=p_info.api_key,
-                        api_base=p_info.base_url
-                    )
-                    candidates.append({
-                        "name": p_info.name,
-                        "provider": fallback_provider,
-                        "model": fallback_provider.default_model
-                    })
-                except Exception as e:
-                    logger.warning(f"Failed to create fallback provider {p_info.name}: {e}")
-
-        last_error = None
-        for i, candidate in enumerate(candidates):
-            try:
-                if i > 0:
-                    await self._send_pulse_message(
-                        f"主模型响应异常，正在尝试备用大脑 ({candidate['name']})，请稍等..."
-                    )
-
-                response = await candidate["provider"].chat(
-                    messages=messages,
-                    tools=tools,
-                    model=candidate.get("model", self.model),
-                    max_tokens=self.max_tokens,
-                    temperature=self.temperature,
-                    timeout=45.0, # Fail fast (45s) to allow rotation
-                )
-                
-                if response.finish_reason == "error":
-                    raise Exception(response.content)
-                
-                return response
-                
-            except Exception as e:
-                last_error = e
-                logger.warning(f"Provider {candidate['name']} failed: {e}")
-                
-                # Report failure to registry to trigger cooldown
-                if self.model_registry:
-                    self.model_registry.report_failure(candidate["name"])
-                    
-                continue
-
-        # If all candidates fail
-        error_msg = f"抱歉老板，所有可用的大脑（共 {len(candidates)} 个）都暂时无法响应。最后一次错误：{last_error}"
-        from nanobot.providers.base import LLMResponse
-        return LLMResponse(content=error_msg, finish_reason="error")
+        return await self.provider_router.chat_with_failover(messages=messages, tools=tools)
 
     async def _send_pulse_message(self, content: str) -> None:
         """Send a proactive 'pulse' message to the user to show progress."""
@@ -815,100 +427,14 @@ class AgentLoop:
             chat_id=origin_chat_id,
         )
 
-        # Agent loop (limited for system message handling)
-        iteration = 0
-        final_content = None
-        seen_tool_call_ids: set[str] = set()
-        seen_tool_call_hashes: set[str] = set()
-        last_tool_signature: str | None = None
-        repeat_count: int = 0
-
-        while iteration < self.max_iterations:
-            iteration += 1
-
-            response = await self._chat_with_failover(
-                messages=messages, tools=self.tools.get_definitions()
-            )
-
-            if response.has_tool_calls:
-                tool_calls = response.tool_calls
-
-                # Loop detection (system path)
-                current_ids = [tc.id for tc in tool_calls if tc.id]
-                current_hashes = []
-                for tc in tool_calls:
-                    args_json = json.dumps(tc.arguments, sort_keys=True)
-                    tc_hash = hashlib.sha256(f"{tc.name}:{args_json}".encode()).hexdigest()
-                    current_hashes.append(tc_hash)
-
-                id_loop = bool(current_ids) and len([tid for tid in current_ids if tid in seen_tool_call_ids]) == len(current_ids)
-                hash_loop = len([h for h in current_hashes if h in seen_tool_call_hashes]) == len(current_hashes)
-
-                current_signature = ",".join(sorted(current_hashes))
-                if current_signature == last_tool_signature:
-                    repeat_count += 1
-                else:
-                    repeat_count = 1
-                    last_tool_signature = current_signature
-
-                is_strict_loop = iteration > 3 and repeat_count >= 3 and (id_loop or hash_loop)
-
-                if is_strict_loop:
-                    if iteration < self.max_iterations - 1:
-                        logger.warning("System loop detected. Injecting self-correction prompt.")
-                        messages.append({
-                            "role": "system",
-                            "content": "系统检测到你正在重复执行相同的工具调用且未取得进展。可能原因是之前的工具输出未满足预期。请不要再次尝试相同操作，改用其他思路（例如检查文件是否存在、调整搜索词、或向用户确认需求）。"
-                        })
-                        seen_tool_call_hashes.clear()
-                        seen_tool_call_ids.clear()
-                        continue
-                    else:
-                        logger.error("Permanent system loop detected after retry. Breaking turn.")
-                        final_content = response.content or "抱歉，我陷入了重复执行的循环并未能恢复。请检查当前指令是否超出权限，或提供更明确的需求。"
-                        break
-
-                for tid in current_ids:
-                    if tid:
-                        seen_tool_call_ids.add(tid)
-                for h in current_hashes:
-                    seen_tool_call_hashes.add(h)
-
-                tool_call_dicts = [
-                    {
-                        "id": tc.id,
-                        "type": "function",
-                        "function": {"name": tc.name, "arguments": json.dumps(tc.arguments)},
-                    }
-                    for tc in tool_calls
-                ]
-                messages = self.context.add_assistant_message(
-                    messages, response.content, tool_call_dicts
-                )
-
-                for tool_call in tool_calls:
-                    args_str = json.dumps(tool_call.arguments)
-                    logger.debug(f"Executing tool: {tool_call.name} with arguments: {args_str}")
-                    result = await self.executor.execute(tool_call.name, tool_call.arguments)
-                    # Normalize non-ToolResult responses for system path
-                    from nanobot.agent.tools.base import ToolResult
-                    if isinstance(result, ToolResult):
-                        result_str = result.output
-                        if result.remedy:
-                            result_str = f"{result_str}\n\n[系统及工具建议: {result.remedy}]"
-                        if result.should_retry:
-                            result_str = f"{result_str}\n\n[系统提示: 建议重试该工具调用，或调整参数后重试。]"
-                        if result.requires_user_confirmation:
-                            result_str = f"{result_str}\n\n[系统提示: 该操作需要用户确认后再执行。]"
-                    else:
-                        result_str = str(result)
-
-                    messages = self.context.add_tool_result(
-                        messages, tool_call.id, tool_call.name, result_str
-                    )
-            else:
-                final_content = response.content
-                break
+        final_content = await self.turn_engine.run(
+            messages=messages,
+            trace_id=msg.trace_id,
+            parse_calls_from_text=False,
+            include_severity=False,
+            parallel_tool_exec=False,
+            compact_after_tools=False,
+        )
 
         if final_content is None:
             final_content = "Background task completed."
@@ -948,7 +474,13 @@ class AgentLoop:
         Returns:
             The agent's response.
         """
-        msg = InboundMessage(channel=channel, sender_id="user", chat_id=chat_id, content=content)
+        msg = InboundMessage(
+            channel=channel,
+            sender_id="user",
+            chat_id=chat_id,
+            content=content,
+            session_key_override=session_key,
+        )
 
         # For direct access, we wait for result but still use queue for safety
         async def task():

@@ -90,6 +90,7 @@ class BaseChannel(ABC):
         content: str,
         media: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
+        session_key_override: str | None = None,
     ) -> None:
         """
         Handle an incoming message from the chat platform.
@@ -117,6 +118,7 @@ class BaseChannel(ABC):
             content=content,
             media=media or [],
             metadata=metadata or {},
+            session_key_override=session_key_override,
         )
 
         await self.bus.publish_inbound(msg)

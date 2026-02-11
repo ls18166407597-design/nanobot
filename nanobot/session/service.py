@@ -1,0 +1,79 @@
+"""Session routing and lightweight session operations for channels."""
+
+import json
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Tuple
+from uuid import uuid4
+
+from nanobot.utils.helpers import get_sessions_path, safe_filename
+
+
+class SessionService:
+    """Provide active-session routing and simple session file operations."""
+
+    def __init__(self, channel_name: str):
+        self.channel_name = channel_name
+        self._active_sessions: Dict[str, str] = {}
+
+    def get_active_session_key(self, chat_id: str) -> str:
+        """Return the active session key for this chat."""
+        return self._active_sessions.get(chat_id, f"{self.channel_name}:{chat_id}")
+
+    def open_new_session(self, chat_id: str) -> str:
+        """Rotate to a new session key and return it."""
+        new_key = self._new_session_key(chat_id)
+        self._active_sessions[chat_id] = new_key
+        return new_key
+
+    def clear_current_session(self, chat_id: str) -> tuple[bool, str]:
+        """Delete current session file if present and rotate to a new session key."""
+        current_key = self.get_active_session_key(chat_id)
+        path = self._session_file_path(current_key)
+        deleted = False
+        if path.exists():
+            path.unlink()
+            deleted = True
+        new_key = self.open_new_session(chat_id)
+        return deleted, new_key
+
+    def list_recent_sessions(self, chat_id: str, limit: int = 10) -> List[Tuple[str, str]]:
+        """List recent sessions for this chat as (session_key, updated_at)."""
+        base = safe_filename(f"{self.channel_name}_{chat_id}")
+        sessions_dir = get_sessions_path()
+        entries: list[tuple[str, str]] = []
+        for path in sessions_dir.glob(f"{base}*.jsonl"):
+            key = path.stem
+            updated = ""
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    first = f.readline().strip()
+                if first:
+                    data = json.loads(first)
+                    if data.get("_type") == "metadata":
+                        key = data.get("key") or key
+                        updated = data.get("updated_at") or ""
+            except Exception:
+                pass
+            entries.append((str(key), str(updated)))
+        entries.sort(key=lambda x: x[1], reverse=True)
+        return entries[:limit]
+
+    def use_session(self, chat_id: str, session_key: str) -> bool:
+        """Switch active session to an existing session key for this chat."""
+        if not session_key:
+            return False
+        if not session_key.startswith(f"{self.channel_name}:{chat_id}"):
+            return False
+        if not self._session_file_path(session_key).exists():
+            return False
+        self._active_sessions[chat_id] = session_key
+        return True
+
+    def _new_session_key(self, chat_id: str) -> str:
+        ts = datetime.now().strftime("%Y%m%d%H%M%S")
+        return f"{self.channel_name}:{chat_id}#s{ts}_{uuid4().hex[:6]}"
+
+    def _session_file_path(self, session_key: str) -> Path:
+        safe_key = safe_filename(session_key.replace(":", "_"))
+        return get_sessions_path() / f"{safe_key}.jsonl"

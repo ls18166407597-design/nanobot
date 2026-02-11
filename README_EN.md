@@ -29,6 +29,19 @@ We have refactored the project into a "Triad" isolated architecture for long-ter
 - 🗺️ **[Roadmap](docs/路线图.md)**
 - 🏗️ **[Project Structure](docs/项目结构.md)**
 
+## Core Refactor Snapshot (2026-02-11)
+
+This round focused on reducing core complexity and hardening contracts:
+
+- Turn execution extracted from `AgentLoop` to `nanobot/agent/turn_engine.py`.
+- Provider failover extracted to `nanobot/agent/provider_router.py`.
+- Default tool wiring extracted to `nanobot/agent/tool_bootstrapper.py`.
+- Session switching/listing extracted to `nanobot/session/service.py`.
+- Telegram formatting/media logic extracted to
+  `nanobot/channels/telegram_format.py` and `nanobot/channels/telegram_media.py`.
+- Core contracts documented in `ARCHITECTURE.md`, with contract tests in
+  `nanobot/tests/test_contracts.py`.
+
 ---
 <p align="center">
   <em> Thank you for using ✨ nanobot! Your advanced administrative secretary. 🐾</em>

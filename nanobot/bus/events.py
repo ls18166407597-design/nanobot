@@ -17,12 +17,13 @@ class InboundMessage:
     timestamp: datetime = field(default_factory=datetime.now)
     media: list[str] = field(default_factory=list)  # Media URLs
     metadata: dict[str, Any] = field(default_factory=dict)  # Channel-specific data
+    session_key_override: str | None = None
     trace_id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
 
     @property
     def session_key(self) -> str:
         """Unique key for session identification."""
-        return f"{self.channel}:{self.chat_id}"
+        return self.session_key_override or f"{self.channel}:{self.chat_id}"
 
 
 @dataclass
