@@ -154,7 +154,7 @@ Only the "visible" response (outside <think> tags) is delivered to the Boss.
             except Exception:
                 kb_status = " [Needs Setup]"
 
-        web_line = "- **Web**: Access the internet via the local `browser` tool (Free). Use `action='search'` to find info."
+        web_line = "- **Web**: 默认优先 `tavily` 做联网检索；仅在需要真实页面渲染/交互/登录态时使用 `browser`。两者可互相回退。"
 
         reasoning_prompt = self._get_reasoning_prompt()
 

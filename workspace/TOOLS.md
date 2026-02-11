@@ -15,10 +15,12 @@
 
 ### 2. 信息调研闭环 (Research & Doc)
 **策略**: 处理复杂调研任务时：
-1. `browser(action="search")`: 多源信息搜集。
-2. `browser(action="browse")`: 深入阅读高价值网页。
-3. `edit_file(...)`: 持续将结论增量写入 `workspace/report.md`。
-4. **输出**: 为老板提供结论摘要及文档路径。
+1. 先用 `tavily(action="search")` 做快速检索（默认）。
+2. 需要深度摘要时，用 `tavily(action="research")`。
+3. 遇到页面渲染/交互/登录态/强反爬时，切到 `browser(action="search"|"browse")`。
+4. 一路失败时执行回退：`tavily` <-> `browser` 互为备用。
+5. `edit_file(...)`: 持续将结论增量写入 `workspace/report.md`。
+6. **输出**: 给出结论时标注 `联网策略: API|Browser|Fallback`，并附文档路径。
 
 ### 3. 多端消息分发 (Smart Send)
 **策略**: 
