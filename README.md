@@ -147,6 +147,13 @@ cd /Users/liusong/Downloads/nanobot && ./scripts/run_gateway.sh
 ```
 提示：网关会自行写入 `NANOBOT_HOME/gateway.log`，如需实时查看请用 `nanobot logs -f`。
 
+Telegram 常用会话命令：
+- `/history` 查看最近会话
+- `/use <session_key>` 切换会话
+- `/new` 新建会话
+- `/clear` 清空当前会话
+- `/undo` 回退上一轮对话
+
 核心链路回归（5 场景）：
 ```bash
 cd /Users/liusong/Downloads/nanobot
