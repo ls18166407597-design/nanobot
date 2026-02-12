@@ -18,7 +18,12 @@ class SessionService:
 
     def get_active_session_key(self, chat_id: str) -> str:
         """Return the active session key for this chat."""
-        return self._active_sessions.get(chat_id, f"{self.channel_name}:{chat_id}")
+        if chat_id in self._active_sessions:
+            return self._active_sessions[chat_id]
+
+        # Migrate legacy key (channel:chat_id) to readable default (channel:chat_id#main).
+        self._migrate_legacy_session_key(chat_id)
+        return self._default_session_key(chat_id)
 
     def open_new_session(self, chat_id: str) -> str:
         """Rotate to a new session key and return it."""
@@ -133,9 +138,39 @@ class SessionService:
         return True, new_key, f"已回退 1 轮对话，移除 {removed_count} 条最近消息并切换到新会话。"
 
     def _new_session_key(self, chat_id: str) -> str:
-        ts = datetime.now().strftime("%Y%m%d%H%M%S")
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         return f"{self.channel_name}:{chat_id}#s{ts}_{uuid4().hex[:6]}"
+
+    def _default_session_key(self, chat_id: str) -> str:
+        return f"{self.channel_name}:{chat_id}#main"
+
+    def _legacy_session_key(self, chat_id: str) -> str:
+        return f"{self.channel_name}:{chat_id}"
 
     def _session_file_path(self, session_key: str) -> Path:
         safe_key = safe_filename(session_key.replace(":", "_"))
         return get_sessions_path() / f"{safe_key}.jsonl"
+
+    def _migrate_legacy_session_key(self, chat_id: str) -> None:
+        """Rename legacy session file/key to new readable '#main' format."""
+        new_key = self._default_session_key(chat_id)
+        old_key = self._legacy_session_key(chat_id)
+        new_path = self._session_file_path(new_key)
+        old_path = self._session_file_path(old_key)
+
+        if new_path.exists() or not old_path.exists():
+            return
+
+        try:
+            lines = old_path.read_text(encoding="utf-8").splitlines()
+            if lines:
+                first = json.loads(lines[0])
+                if first.get("_type") == "metadata":
+                    first["key"] = new_key
+                    first["updated_at"] = datetime.now().isoformat()
+                    lines[0] = json.dumps(first)
+            new_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            old_path.unlink()
+        except Exception:
+            # Best-effort migration; fallback keeps using new key and starts fresh if needed.
+            return
