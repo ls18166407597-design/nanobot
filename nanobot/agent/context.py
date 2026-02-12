@@ -379,9 +379,8 @@ class ContextBuilder:
         # or if it's explicitly needed to avoid Gemini proxy errors.
         final_content = content or ""
         if tool_calls and not final_content:
-            # We use a localized placeholder but only if it's likely to take time
-            # or to satisfy protocol requirements for non-empty content
-            final_content = "[正在处理中...]"
+            # Keep non-empty content for provider compatibility, but avoid user-facing wording.
+            final_content = " "
 
         msg: dict[str, Any] = {"role": "assistant", "content": final_content}
 
