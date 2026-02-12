@@ -20,7 +20,7 @@
 - `github` -> `github`, `read_file`, `write_file`, `edit_file`
 - `cron` -> `cron`, `task`, `exec`
 - `system-health-check` -> `exec`, `read_file`, `list_dir`
-- `project-audit` -> `exec`, `read_file`, `write_file`
+- `project-sentinel` -> `exec`, `read_file`, `write_file`
 - `html-cleanup` -> `read_file`, `write_file`, `edit_file`
 - `clawhub` -> `skills`, `exec`
 
