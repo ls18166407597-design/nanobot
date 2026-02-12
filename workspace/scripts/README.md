@@ -7,6 +7,7 @@
 - Python 入口建议使用：`.venv/bin/python`
 - 默认数据目录建议固定：`NANOBOT_HOME=/Users/liusong/Downloads/nanobot/.home`
 - 通讯录文件：`/Users/liusong/Downloads/nanobot/workspace/scripts/contacts/contacts.json`
+- 若脚本已迁移到 `workspace/skills/<skill>/scripts/`，`workspace/scripts` 中会保留兼容入口（wrapper）。
 
 ## contacts（联系人管理）
 
@@ -40,6 +41,10 @@ NANOBOT_HOME=/Users/liusong/Downloads/nanobot/.home \
 ```
 
 ## mail（邮件巡检与已读处理）
+
+说明：
+- 本组脚本主实现位于：`workspace/skills/mail/scripts/`
+- 当前 `workspace/scripts/mail/*.py` 为兼容入口。
 
 入口脚本：
 - `mail/check_emails.py`
@@ -101,6 +106,10 @@ bash workspace/scripts/vision/vision_optimizer.sh /tmp/in.png /tmp/out.png 1024
 ```
 
 ## html（HTML 清洗）
+
+说明：
+- 主实现位于：`workspace/skills/html-cleanup/scripts/clean_html.py`
+- `workspace/scripts/clean_html.py` 为兼容入口。
 
 入口脚本：
 - `clean_html.py`

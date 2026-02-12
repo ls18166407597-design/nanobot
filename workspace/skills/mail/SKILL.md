@@ -39,6 +39,12 @@ metadata:
 - 配置邮箱：
   `mail(action="setup", setup_email="xxx@gmail.com", setup_password="app_password")`
 
+## 关联脚本
+- `workspace/skills/mail/scripts/check_emails.py`
+- `workspace/skills/mail/scripts/mark_gmail_read.py`
+- `workspace/skills/mail/scripts/mark_qq_read.py`
+- 兼容入口仍可用：`workspace/scripts/mail/*.py`
+
 ## 失败处理
 - 未配置：提示使用 `setup` 动作完成配置。
 - 参数缺失：明确指出缺哪个字段。
