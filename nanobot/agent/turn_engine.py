@@ -1,7 +1,6 @@
 """Turn execution engine shared by foreground and system message flows."""
 
 import asyncio
-import hashlib
 import json
 import re
 import time
@@ -10,6 +9,12 @@ from typing import Any, Awaitable, Callable
 from loguru import logger
 
 from nanobot.agent.context_guard import ContextGuard
+from nanobot.agent.loop_guard import (
+    RepeatWindow,
+    collect_call_ids_and_hashes,
+    is_hash_loop,
+    is_id_loop,
+)
 from nanobot.agent.tools.base import ToolResult, ToolSeverity
 from nanobot.providers.base import ToolCallRequest
 from nanobot.utils.audit import log_event
@@ -61,8 +66,7 @@ class TurnEngine:
         final_content = None
         seen_tool_call_ids: set[str] = set()
         seen_tool_call_hashes: set[str] = set()
-        last_tool_signature: str | None = None
-        repeat_count: int = 0
+        repeat_window = RepeatWindow()
         total_tool_calls: int = 0
         tool_call_counts: dict[str, int] = {}
         max_total_tool_calls = self.max_total_tool_calls
@@ -127,13 +131,12 @@ class TurnEngine:
                 final_content = await self._finalize_after_budget(messages=messages, reason=budget_reason)
                 break
 
-            is_strict_loop, current_ids, current_hashes, last_tool_signature, repeat_count = self._evaluate_loop_repetition(
+            is_strict_loop, current_ids, current_hashes = self._evaluate_loop_repetition(
                 iteration=iteration,
                 tool_calls=tool_calls,
                 seen_tool_call_ids=seen_tool_call_ids,
                 seen_tool_call_hashes=seen_tool_call_hashes,
-                last_tool_signature=last_tool_signature,
-                repeat_count=repeat_count,
+                repeat_window=repeat_window,
             )
             if is_strict_loop:
                 if iteration < self.max_iterations - 1:
@@ -202,28 +205,16 @@ class TurnEngine:
         tool_calls: list[ToolCallRequest],
         seen_tool_call_ids: set[str],
         seen_tool_call_hashes: set[str],
-        last_tool_signature: str | None,
-        repeat_count: int,
-    ) -> tuple[bool, list[str], list[str], str | None, int]:
-        current_ids = [tc.id for tc in tool_calls if tc.id]
-        current_hashes = []
-        for tc in tool_calls:
-            args_json = json.dumps(tc.arguments, sort_keys=True)
-            tc_hash = hashlib.sha256(f"{tc.name}:{args_json}".encode()).hexdigest()
-            current_hashes.append(tc_hash)
-
-        id_loop = bool(current_ids) and len([tid for tid in current_ids if tid in seen_tool_call_ids]) == len(current_ids)
-        hash_loop = len([h for h in current_hashes if h in seen_tool_call_hashes]) == len(current_hashes)
-
+        repeat_window: RepeatWindow,
+    ) -> tuple[bool, list[str], list[str]]:
+        current_ids, current_hashes = collect_call_ids_and_hashes(tool_calls)
+        id_loop = is_id_loop(current_ids, seen_tool_call_ids)
+        hash_loop = is_hash_loop(current_hashes, seen_tool_call_hashes)
         current_signature = ",".join(sorted(current_hashes))
-        if current_signature == last_tool_signature:
-            repeat_count += 1
-        else:
-            repeat_count = 1
-            last_tool_signature = current_signature
+        repeat_count = repeat_window.update(current_signature)
 
         is_strict_loop = iteration > 3 and repeat_count >= 3 and (id_loop or hash_loop)
-        return is_strict_loop, current_ids, current_hashes, last_tool_signature, repeat_count
+        return is_strict_loop, current_ids, current_hashes
 
     def _tool_budget_reason(
         self,

@@ -1,10 +1,10 @@
-import hashlib
 import json
 import time
 import traceback
 from typing import Any, Dict, Set, Protocol
 from loguru import logger
 
+from nanobot.agent.loop_guard import tool_call_hash
 from nanobot.agent.tools.base import Tool, ToolResult
 
 class ToolRegistryProtocol(Protocol):
@@ -31,13 +31,12 @@ class ToolExecutor:
         self._failed_meta: Dict[str, Dict[str, Any]] = {}
 
     def _get_call_hash(self, name: str, params: Dict[str, Any]) -> str:
-        # Sort keys to ensure deterministic hashing for identical objects
+        # Use shared hash builder to keep loop policy consistent with TurnEngine.
         try:
-            args_json = json.dumps(params, sort_keys=True)
+            return tool_call_hash(name, params)
         except (TypeError, ValueError):
-            # Fallback if arguments are not JSON serializable (shouldn't happen with valid tools)
-            args_json = str(sorted(params.items()))
-        return hashlib.sha256(f"{name}:{args_json}".encode()).hexdigest()
+            # Fallback if arguments are not JSON serializable.
+            return json.dumps({"name": name, "params": str(sorted(params.items()))})
 
     async def execute(self, name: str, params: Dict[str, Any]) -> "ToolResult":
         call_hash = self._get_call_hash(name, params)
