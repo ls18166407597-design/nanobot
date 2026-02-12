@@ -18,6 +18,8 @@
 - `automated-messaging` -> `message`, `mac_control`, `mac_vision`, `exec`
 - `computer-control` -> `mac_control`, `mac_vision`, `exec`
 - `github` -> `github`, `read_file`, `write_file`, `edit_file`
+- `train-ticket` -> `train_ticket`
+- `mail` -> `mail`（内部路由 `gmail/qq_mail`）
 - `cron` -> `cron`, `task`, `exec`
 - `system-health-check` -> `exec`, `read_file`, `list_dir`
 - `project-sentinel` -> `exec`, `read_file`, `write_file`
