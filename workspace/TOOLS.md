@@ -2,10 +2,15 @@
 
 本文件只描述工具分工与配置位置，不承载人格或执行铁律。
 
+## 路由总原则
+- 先专用后通用：能用领域工具就不要先走通用搜索。
+- 单子问题单通道：同一步尽量只用一类联网能力，避免并行混用导致噪声。
+- 对用户展示“业务来源”（如 `12306`、`GitHub`、`DuckDuckGo`、`Browser`），不展示实现细节（如 `MCP`/SDK）。
+
 ## 联网工具分工
 - `train_ticket`：火车票查询能力（优先使用）。
 - `tavily`：API 检索能力。
-- `duckduckgo`：通用网页检索能力（MCP 后端封装，作为信息检索第二优先级）。
+- `duckduckgo`：通用网页检索能力（后端封装，作为信息检索第二优先级）。
 - `browser`：页面渲染/交互能力。
 - 具体选择顺序由运行时 ToolPolicy 决定，本文件不重复定义策略细节。
 
@@ -43,3 +48,5 @@
 - `tushare` -> `tushare_config.json`
 - `feishu` -> `feishu_config.json`
 - `train_ticket` -> `mcp_config.json`（读取 `servers.12306`）
+- `duckduckgo` -> `mcp_config.json`（读取 `servers.duckduckgo`）
+- `github` -> `mcp_config.json`（读取 `servers.github`）

@@ -26,7 +26,7 @@ description: Nanobot 的综合诊断和回归套件。更新后使用此技能�
 
 运行回归套件:
 ```bash
-python3 nanobot/skills/system-health-check/scripts/regression_suite.py
+python3 workspace/skills/system-health-check/scripts/regression_suite.py
 ```
 
 检查生成的 `audit_report.json`，或者分析标准输出 (STDOUT)。
