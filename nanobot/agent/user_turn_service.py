@@ -69,6 +69,7 @@ class UserTurnService:
             final_content = "我已经完成了处理，但暂时没有需要回复的具体内容。"
 
         final_content = self.filter_reasoning(str(final_content))
+        final_content = self._add_query_source_line(final_content, msg.trace_id)
         if final_content.strip() == "":
             final_content = "本次未产出有效结果，可能模型或工具链暂时不可用。请重试一次。"
         session.add_message("user", msg.content)
@@ -85,3 +86,31 @@ class UserTurnService:
             content=final_content,
             trace_id=msg.trace_id,
         )
+
+    def _add_query_source_line(self, content: str, trace_id: str | None) -> str:
+        if "查询来源:" in content:
+            return content
+        pop_fn = getattr(self.turn_engine, "pop_used_tools", None)
+        if not callable(pop_fn):
+            return content
+        tools = pop_fn(trace_id)
+        if not tools:
+            return content
+        source_map = {
+            "train_ticket": "12306",
+            "github": "GitHub",
+            "tavily": "Tavily API",
+            "duckduckgo": "DuckDuckGo",
+            "browser": "Browser",
+            "weather": "和风天气 API",
+            "tianapi": "天行 API",
+            "tushare": "Tushare API",
+        }
+        sources: list[str] = []
+        for t in tools:
+            src = source_map.get(t)
+            if src and src not in sources:
+                sources.append(src)
+        if not sources:
+            return content
+        return f"查询来源: {' + '.join(sources)}\n\n{content}"

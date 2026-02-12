@@ -16,12 +16,11 @@
 ### 2. 信息调研闭环
 **策略**: 处理复杂调研任务时：
 1. 先用 `tavily(action="search")` 做快速检索（默认）。
-2. 需要深度摘要时，用 `tavily(action="research")`。
-3. 遇到页面渲染/交互/登录态/强反爬时，切到 `browser(action="search"|"browse")`。
-4. 仅在用户明确要求 MCP，或 `tavily/browser` 均失败时，才使用 `mcp`。
-5. 一路失败时执行回退：`tavily` <-> `browser`，必要时再到 `mcp`。
-6. `edit_file(...)`: 持续将结论增量写入 `workspace/report.md`。
-7. **输出**: 给出结论时标注 `联网策略: API|Browser|Fallback`，并附文档路径。
+2. 失败时自动回退到 `duckduckgo(action="search")`。
+3. 需要深度摘要时，用 `tavily(action="research")`。
+4. 遇到页面渲染/交互/登录态/强反爬时，切到 `browser(action="search"|"browse")`。
+5. `edit_file(...)`: 持续将结论增量写入 `workspace/report.md`。
+6. **输出**: 给出结论时首行标注 `查询来源: ...`，并附文档路径。
 
 ### 3. 多端消息分发
 **策略**: 
@@ -49,12 +48,11 @@
 
 ---
 
-## 🏗️ 技术解读：MCP 浏览器 vs. 内置 browser
-`Playwright/Puppeteer MCP` 与项目内置 `browser.py` 的区别：
-1. **接入层**: 内置 `browser` 是项目内工具；MCP 浏览器是外部进程 + 协议调用。
-2. **能力粒度**: 内置 `browser` 偏高层（search/browse）；MCP 浏览器更适合细粒度交互编排。
-3. **复杂度**: 内置链路更短、排障更直观；MCP 扩展更灵活，但运行链路更长。
-建议：常规检索继续使用 `tavily + browser`，仅在复杂页面任务或明确需求时引入 MCP 浏览器。
+## 🏗️ 技术解读：MCP 在本项目中的定位
+当前项目采用“**工具封装优先**”策略：
+1. 模型优先调用项目内工具（如 `github`、`train_ticket`、`duckduckgo`）。
+2. 这些工具在内部调用 MCP server，MCP 作为后端能力层。
+3. 默认不向模型暴露通用 `mcp` 工具，避免参数漂移和协议误用。
 - **静默机制**: 仅对无副作用的维护任务（如 RAG 向量化）使用 `SILENT_REPLY_TOKEN`。
 
 ---

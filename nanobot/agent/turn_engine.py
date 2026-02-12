@@ -56,6 +56,7 @@ class TurnEngine:
         self.max_turn_seconds = max_turn_seconds
         self.hook_registry = hook_registry
         self.tool_policy = tool_policy or ToolPolicy()
+        self._trace_tools: dict[str, list[str]] = {}
 
     async def run(
         self,
@@ -78,6 +79,7 @@ class TurnEngine:
         per_tool_limits: dict[str, int] = {}
         deadline = time.monotonic() + float(self.max_turn_seconds)
         failed_tools: set[str] = set()
+        used_tools: list[str] = []
 
         while iteration < self.max_iterations:
             if time.monotonic() >= deadline:
@@ -260,6 +262,9 @@ class TurnEngine:
                 }
                 for tc in tool_calls
             ]
+            for tc in tool_calls:
+                if tc.name not in used_tools:
+                    used_tools.append(tc.name)
             self.context.add_assistant_message(messages, response.content, tool_call_dicts)
             tool_exec_results = await self._execute_tool_calls(
                 messages=messages,
@@ -306,7 +311,17 @@ class TurnEngine:
             "turn_end",
             {"trace_id": trace_id, "iterations": iteration, "has_content": bool((final_content or "").strip())},
         )
+        if trace_id:
+            self._trace_tools[trace_id] = used_tools
+            if len(self._trace_tools) > 200:
+                oldest = next(iter(self._trace_tools.keys()))
+                self._trace_tools.pop(oldest, None)
         return final_content
+
+    def pop_used_tools(self, trace_id: str | None) -> list[str]:
+        if not trace_id:
+            return []
+        return self._trace_tools.pop(trace_id, [])
 
     async def _trigger_hook(self, event: str, payload: dict[str, Any]) -> None:
         if self.hook_registry is None:
