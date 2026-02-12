@@ -6,10 +6,8 @@ import re
 import shutil
 from pathlib import Path
 
-# Canonical core skills directory (single source of truth)
-CORE_SKILLS_DIR = Path(__file__).parent.parent / "library" / "skills"
-# Legacy compatibility directory (kept for transition only)
-LEGACY_SKILLS_DIR = Path(__file__).parent.parent / "skills"
+# System skills directory (single source of truth)
+SYSTEM_SKILLS_DIR = Path(__file__).parent.parent / "skills"
 
 
 class SkillsLoader:
@@ -24,13 +22,11 @@ class SkillsLoader:
         self,
         workspace: Path,
         core_skills_dir: Path | None = None,
-        legacy_skills_dir: Path | None = None,
     ):
         self.workspace = workspace
         self.workspace_skills = workspace / "skills"
-        self.core_skills = core_skills_dir or CORE_SKILLS_DIR
-        self.legacy_skills = legacy_skills_dir or LEGACY_SKILLS_DIR
-        # Keep alias for older callers.
+        self.core_skills = core_skills_dir or SYSTEM_SKILLS_DIR
+        # Backward-compatible alias used by SkillsTool install path.
         self.library_skills = self.core_skills
 
     def list_skills(self, filter_unavailable: bool = True) -> list[dict[str, str]]:
@@ -65,20 +61,6 @@ class SkillsLoader:
                             {"name": skill_dir.name, "path": str(skill_file), "source": "core"}
                         )
 
-        # Legacy project skills: fallback only, lower priority than core/workspace
-        if self.legacy_skills and self.legacy_skills.exists():
-            for skill_dir in self.legacy_skills.iterdir():
-                if skill_dir.is_dir():
-                    skill_file = skill_dir / "SKILL.md"
-                    if skill_file.exists() and not any(s["name"] == skill_dir.name for s in skills):
-                        skills.append(
-                            {
-                                "name": skill_dir.name,
-                                "path": str(skill_file),
-                                "source": "legacy_core",
-                            }
-                        )
-
         # Filter by requirements
         if filter_unavailable:
             return [s for s in skills if self._check_requirements(self._get_skill_meta(s["name"]))]
@@ -107,12 +89,6 @@ class SkillsLoader:
             core_skill = self.core_skills / normalized / "SKILL.md"
             if core_skill.exists():
                 return core_skill.read_text(encoding="utf-8")
-
-        # Check legacy fallback
-        if self.legacy_skills:
-            legacy_skill = self.legacy_skills / normalized / "SKILL.md"
-            if legacy_skill.exists():
-                return legacy_skill.read_text(encoding="utf-8")
 
         return None
 

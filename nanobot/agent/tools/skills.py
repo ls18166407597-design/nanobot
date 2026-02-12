@@ -180,7 +180,7 @@ class SkillsTool(Tool):
 
     def _list_installed(self) -> str:
         skills = self.loader.list_skills(filter_unavailable=False)
-        installed = [s for s in skills if s["source"] in ["workspace", "core", "legacy_core"]]
+        installed = [s for s in skills if s["source"] in ["workspace", "core"]]
         if not installed:
             return "No skills found in workspace or built-in directories."
 
