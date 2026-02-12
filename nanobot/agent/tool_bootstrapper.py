@@ -7,6 +7,7 @@ from typing import Any
 from nanobot.agent.task_manager import TaskManager
 from nanobot.agent.tools.browser import BrowserTool
 from nanobot.agent.tools.cron import CronTool
+from nanobot.agent.tools.duckduckgo import DuckDuckGoTool
 from nanobot.agent.tools.feishu import FeishuTool
 from nanobot.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
 from nanobot.agent.tools.github import GitHubTool
@@ -134,6 +135,8 @@ class ToolBootstrapper:
             self.tools.register(WeatherTool())
         if self._tool_enabled("tavily"):
             self.tools.register(TavilyTool())
+        if self._tool_enabled("duckduckgo"):
+            self.tools.register(DuckDuckGoTool())
         if self._tool_enabled("tianapi"):
             self.tools.register(TianAPITool())
         if self._tool_enabled("tushare"):

@@ -8,8 +8,8 @@ from typing import Any
 class ToolPolicy:
     """Decide which tools should be exposed to the model in current iteration."""
 
-    WEB_TOOLS = {"tavily", "browser", "mcp"}
-    VALID_WEB_DEFAULT = {"tavily", "browser"}
+    WEB_TOOLS = {"tavily", "duckduckgo", "browser", "mcp"}
+    VALID_WEB_DEFAULT = {"tavily", "duckduckgo", "browser"}
 
     def __init__(
         self,
@@ -88,23 +88,33 @@ class ToolPolicy:
         if not web_present:
             return tool_definitions
 
-        preferred = "browser" if browser_needed else self.web_default
-        if preferred in failed_tools:
-            preferred = "browser" if preferred == "tavily" else "tavily"
-
         allow_web: set[str] = set()
-        if preferred in web_present:
-            allow_web.add(preferred)
+        if browser_needed:
+            for candidate in ("browser", "tavily", "duckduckgo"):
+                if candidate in web_present and candidate not in failed_tools:
+                    allow_web.add(candidate)
+                    break
+        else:
+            search_order = self._search_priority_order()
+            for candidate in search_order:
+                if candidate in web_present and candidate not in failed_tools:
+                    allow_web.add(candidate)
+                    break
 
-        both_core_failed = "tavily" in failed_tools and "browser" in failed_tools
+        both_core_failed = (
+            ("tavily" in failed_tools or "tavily" not in web_present)
+            and ("duckduckgo" in failed_tools or "duckduckgo" not in web_present)
+            and ("browser" in failed_tools or "browser" not in web_present)
+        )
         can_use_mcp = self.enable_mcp_fallback and both_core_failed
         if can_use_mcp and "mcp" in web_present:
             allow_web.add("mcp")
 
         if not allow_web:
-            for n in ("tavily", "browser"):
+            for n in ("tavily", "duckduckgo", "browser"):
                 if n in web_present:
                     allow_web.add(n)
+                    break
             if "mcp" in web_present and can_use_mcp:
                 allow_web.add("mcp")
 
@@ -168,8 +178,7 @@ class ToolPolicy:
     ) -> list[dict[str, Any]]:
         if not failed_tools:
             return tool_definitions
-        filtered = [td for td in tool_definitions if self._tool_name(td) not in failed_tools]
-        return filtered or tool_definitions
+        return [td for td in tool_definitions if self._tool_name(td) not in failed_tools]
 
     def _latest_user_text(self, messages: list[dict[str, Any]]) -> str:
         for m in reversed(messages):
@@ -178,6 +187,14 @@ class ToolPolicy:
                 if isinstance(content, str):
                     return content
         return ""
+
+    def _search_priority_order(self) -> tuple[str, str, str]:
+        # Desired default priority: tavily -> duckduckgo -> browser.
+        if self.web_default == "duckduckgo":
+            return ("duckduckgo", "tavily", "browser")
+        if self.web_default == "browser":
+            return ("browser", "tavily", "duckduckgo")
+        return ("tavily", "duckduckgo", "browser")
 
     def _needs_browser(self, text: str) -> bool:
         keywords = (

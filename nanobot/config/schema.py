@@ -141,7 +141,7 @@ class MCPToolsConfig(BaseModel):
 class ToolPolicyConfig(BaseModel):
     """Tool routing policy configuration."""
 
-    web_default: str = "tavily"  # tavily | browser
+    web_default: str = "tavily"  # tavily | duckduckgo | browser
     enable_mcp_fallback: bool = False
     allow_explicit_mcp: bool = False
     intent_rules: list[dict[str, Any]] = Field(
