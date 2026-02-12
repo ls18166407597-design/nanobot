@@ -3,7 +3,7 @@
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Tuple
 from uuid import uuid4
 
 from nanobot.utils.helpers import get_sessions_path, safe_filename
@@ -69,6 +69,68 @@ class SessionService:
             return False
         self._active_sessions[chat_id] = session_key
         return True
+
+    def rewind_last_turn(self, chat_id: str) -> tuple[bool, str, str]:
+        """
+        Roll back one user turn by creating a new trimmed session and switching to it.
+
+        Returns:
+            (ok, new_or_current_session_key, message)
+        """
+        current_key = self.get_active_session_key(chat_id)
+        path = self._session_file_path(current_key)
+        if not path.exists():
+            new_key = self.open_new_session(chat_id)
+            return False, new_key, "当前会话文件不存在，已切换到新会话。"
+
+        try:
+            metadata: dict[str, Any] = {}
+            messages: list[dict[str, Any]] = []
+            with open(path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    data = json.loads(line)
+                    if data.get("_type") == "metadata":
+                        metadata = data
+                    else:
+                        messages.append(data)
+        except Exception:
+            return False, current_key, "读取会话失败，未执行回退。"
+
+        last_user_idx = -1
+        for i in range(len(messages) - 1, -1, -1):
+            if messages[i].get("role") == "user":
+                last_user_idx = i
+                break
+
+        if last_user_idx < 0:
+            return False, current_key, "当前会话没有可回退的用户消息。"
+
+        trimmed_messages = messages[:last_user_idx]
+        removed_count = len(messages) - len(trimmed_messages)
+        new_key = self._new_session_key(chat_id)
+        new_path = self._session_file_path(new_key)
+        new_path.parent.mkdir(parents=True, exist_ok=True)
+
+        created_at = metadata.get("created_at") or datetime.now().isoformat()
+        metadata_payload = metadata.get("metadata", {})
+        meta_line = {
+            "_type": "metadata",
+            "key": new_key,
+            "created_at": created_at,
+            "updated_at": datetime.now().isoformat(),
+            "metadata": metadata_payload if isinstance(metadata_payload, dict) else {},
+        }
+
+        with open(new_path, "w", encoding="utf-8") as f:
+            f.write(json.dumps(meta_line) + "\n")
+            for msg in trimmed_messages:
+                f.write(json.dumps(msg) + "\n")
+
+        self._active_sessions[chat_id] = new_key
+        return True, new_key, f"已回退 1 轮对话，移除 {removed_count} 条最近消息并切换到新会话。"
 
     def _new_session_key(self, chat_id: str) -> str:
         ts = datetime.now().strftime("%Y%m%d%H%M%S")

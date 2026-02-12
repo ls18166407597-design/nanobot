@@ -90,6 +90,7 @@ class TelegramChannel(BaseChannel):
             self._app.add_handler(CommandHandler("use", self._on_use))
             self._app.add_handler(CommandHandler("new", self._on_new))
             self._app.add_handler(CommandHandler("clear", self._on_clear))
+            self._app.add_handler(CommandHandler("undo", self._on_undo))
             self._app.add_handler(MessageHandler(filters.COMMAND, self._on_unknown_command))
 
             logger.info("Initializing Telegram application...")
@@ -110,6 +111,7 @@ class TelegramChannel(BaseChannel):
                     BotCommand("use", "切换到指定会话"),
                     BotCommand("new", "开启新会话"),
                     BotCommand("clear", "清空当前会话"),
+                    BotCommand("undo", "回退上一轮对话"),
                 ]
             )
 
@@ -206,7 +208,8 @@ class TelegramChannel(BaseChannel):
             "/history - 查看会话历史\n"
             "/use <session_key> - 切换到指定会话\n"
             "/new - 开启新会话\n"
-            "/clear - 清空当前会话"
+            "/clear - 清空当前会话\n"
+            "/undo - 回退上一轮对话"
         )
 
     async def _on_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -273,6 +276,17 @@ class TelegramChannel(BaseChannel):
             await update.message.reply_text("已切换到指定会话。")
         else:
             await update.message.reply_text("切换失败：会话不存在，或不属于当前 chat。")
+
+    async def _on_undo(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /undo command: rewind last user turn and rotate to a trimmed session."""
+        if not update.message:
+            return
+        chat_id = str(update.message.chat_id)
+        ok, session_key, msg = self._session_service.rewind_last_turn(chat_id)
+        if ok:
+            await update.message.reply_text(f"{msg}\n当前会话: {session_key}")
+        else:
+            await update.message.reply_text(msg)
 
     async def _on_unknown_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle unknown slash commands."""
