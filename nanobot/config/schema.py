@@ -136,8 +136,8 @@ class ToolsConfig(BaseModel):
     restrict_to_workspace: bool = False  # If true, restrict all tool access to workspace directory
     error_fallback_channel: str = "cli"  # Fallback channel when system message has no origin
     error_fallback_chat_id: str = "direct"  # Fallback chat_id when system message has no origin
-    busy_notice_threshold: int = 1  # Minimum queued/active tasks before showing busy notice
-    busy_notice_debounce_seconds: int = 60  # Debounce seconds for busy notice
+    busy_notice_threshold: int = 2  # Minimum queued/active tasks before showing busy notice
+    busy_notice_debounce_seconds: int = 120  # Debounce seconds for busy notice
     enabled_tools: list[str] | None = None  # If set, only tools in this list will be registered
     disabled_tools: list[str] = Field(default_factory=list)  # Tools to skip during registration
 
@@ -158,6 +158,7 @@ class BrainConfig(BaseModel):
     memory_chunk_size: int = 500
     summary_threshold: int = 40  # Messages count to trigger summary
     max_total_tool_calls: int = 30  # Hard cap for tool calls in a single turn
+    max_turn_seconds: int = 45  # Hard cap for total processing time in a single turn
 
     # Registry for additional providers (e.g. One API)
     provider_registry: list[dict[str, str]] = Field(default_factory=list)

@@ -32,6 +32,7 @@ class TurnEngine:
         self_correction_prompt: str,
         loop_break_reply: str,
         max_total_tool_calls: int = 30,
+        max_turn_seconds: int = 45,
     ):
         self.context = context
         self.executor = executor
@@ -44,6 +45,7 @@ class TurnEngine:
         self.self_correction_prompt = self_correction_prompt
         self.loop_break_reply = loop_break_reply
         self.max_total_tool_calls = max_total_tool_calls
+        self.max_turn_seconds = max_turn_seconds
 
     async def run(
         self,
@@ -65,16 +67,41 @@ class TurnEngine:
         tool_call_counts: dict[str, int] = {}
         max_total_tool_calls = self.max_total_tool_calls
         per_tool_limits: dict[str, int] = {}
+        deadline = time.monotonic() + float(self.max_turn_seconds)
 
         while iteration < self.max_iterations:
+            if time.monotonic() >= deadline:
+                final_content = await self._finalize_after_budget(
+                    messages=messages,
+                    reason=f"单轮处理超时（>{self.max_turn_seconds}s）",
+                )
+                break
+
             iteration += 1
             if trace_id:
                 logger.debug(f"[TraceID: {trace_id}] Starting iteration {iteration}")
 
-            response = await self.chat_with_failover(
-                messages=messages,
-                tools=self.get_tools_definitions(),
-            )
+            try:
+                remaining = max(0.5, deadline - time.monotonic())
+                response = await asyncio.wait_for(
+                    self.chat_with_failover(
+                        messages=messages,
+                        tools=self.get_tools_definitions(),
+                    ),
+                    timeout=remaining,
+                )
+            except TimeoutError:
+                final_content = await self._finalize_after_budget(
+                    messages=messages,
+                    reason=f"模型响应超时（>{self.max_turn_seconds}s）",
+                )
+                break
+            except Exception:
+                final_content = await self._finalize_after_budget(
+                    messages=messages,
+                    reason="模型调用异常，触发最终总结",
+                )
+                break
 
             tool_calls = response.tool_calls
             if not tool_calls and parse_calls_from_text and response.content:
