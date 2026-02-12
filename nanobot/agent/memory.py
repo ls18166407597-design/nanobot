@@ -3,6 +3,8 @@
 from datetime import datetime
 from pathlib import Path
 import re
+import math
+from collections import Counter
 
 from nanobot.utils.helpers import ensure_dir, today_date
 
@@ -93,7 +95,7 @@ class MemoryStore:
 
     def search(self, query: str, top_k: int = 3) -> list[str]:
         """
-        Search long-term memory using simple keyword matching (Light RAG).
+        Search long-term memory using hybrid lexical retrieval (Light RAG).
         
         Args:
             query: The search query.
@@ -109,39 +111,98 @@ class MemoryStore:
         if not content:
             return []
 
-        # Simple chunking by headers
+        chunks = self._split_chunks(content)
+        if not chunks:
+            return []
+
+        query_tokens = self._tokenize(query)
+        if not query_tokens:
+            return []
+
+        # Build per-chunk stats for BM25-like lexical scoring.
+        chunk_tokens = [self._tokenize(c) for c in chunks]
+        token_counts = [Counter(toks) for toks in chunk_tokens]
+        doc_lens = [sum(c.values()) for c in token_counts]
+        avg_len = sum(doc_lens) / max(1, len(doc_lens))
+
+        # Document frequency
+        df: Counter[str] = Counter()
+        for toks in chunk_tokens:
+            for t in set(toks):
+                df[t] += 1
+
+        n_docs = len(chunks)
+        scored_chunks: list[tuple[float, str]] = []
+        query_set = set(query_tokens)
+        k1 = 1.2
+        b = 0.75
+        for i, chunk in enumerate(chunks):
+            bm25 = 0.0
+            for t in query_set:
+                f = token_counts[i].get(t, 0)
+                if f <= 0:
+                    continue
+                idf = math.log(1 + (n_docs - df[t] + 0.5) / (df[t] + 0.5))
+                denom = f + k1 * (1 - b + b * (doc_lens[i] / max(1.0, avg_len)))
+                bm25 += idf * ((f * (k1 + 1)) / max(1e-9, denom))
+
+            # Add fuzzy semantic proxy via char-trigram jaccard
+            # so paraphrased wording still gets non-zero score.
+            fuzzy = self._char_ngram_jaccard(query, chunk, n=3)
+            score = bm25 + 0.6 * fuzzy
+            if score > 0:
+                scored_chunks.append((score, chunk))
+
+        scored_chunks.sort(key=lambda x: x[0], reverse=True)
+        return [chunk for _, chunk in scored_chunks[:top_k]]
+
+    def _split_chunks(self, content: str) -> list[str]:
         chunks = []
         current_chunk = []
-        
         for line in content.splitlines():
             if line.startswith("#") and current_chunk:
                 chunks.append("\n".join(current_chunk))
                 current_chunk = []
             current_chunk.append(line)
-            
         if current_chunk:
             chunks.append("\n".join(current_chunk))
+        return chunks
 
-        # Score chunks
-        query_terms = set(re.findall(r"\w+", query.lower()))
-        # Remove common stopwords to improve quality
-        stopwords = {"the", "is", "at", "which", "on", "a", "an", "and", "or", "but", "to", "for", "in", "with"}
-        query_terms = {t for t in query_terms if t not in stopwords and len(t) > 2}
-        
-        if not query_terms:
-            return []
+    def _tokenize(self, text: str) -> list[str]:
+        text = text.lower()
+        # English/number tokens
+        en_tokens = re.findall(r"[a-z0-9_+-]{2,}", text)
+        # CJK contiguous blocks (lightweight, no external deps)
+        zh_blocks = re.findall(r"[\u4e00-\u9fff]{2,}", text)
+        zh_tokens: list[str] = []
+        for blk in zh_blocks:
+            # Keep block itself + bigrams for better recall on wording changes
+            zh_tokens.append(blk)
+            if len(blk) > 2:
+                zh_tokens.extend(blk[i : i + 2] for i in range(len(blk) - 1))
 
-        scored_chunks = []
-        for chunk in chunks:
-            chunk_lower = chunk.lower()
-            score = sum(1 for term in query_terms if term in chunk_lower)
-            if score > 0:
-                scored_chunks.append((score, chunk))
+        stop_en = {
+            "the", "is", "at", "which", "on", "a", "an", "and", "or", "but", "to", "for", "in", "with",
+            "that", "this", "from", "are", "was", "were", "be", "as", "by", "it", "of",
+        }
+        stop_zh = {"这个", "那个", "我们", "你们", "他们", "以及", "然后", "就是", "可以", "需要", "一下", "一个"}
+        tokens = [t for t in (en_tokens + zh_tokens) if t not in stop_en and t not in stop_zh]
+        return tokens
 
-        # Sort by score desc
-        scored_chunks.sort(key=lambda x: x[0], reverse=True)
-        
-        return [chunk for score, chunk in scored_chunks[:top_k]]
+    def _char_ngram_jaccard(self, query: str, doc: str, n: int = 3) -> float:
+        def grams(s: str) -> set[str]:
+            s = re.sub(r"\s+", "", s.lower())
+            if len(s) < n:
+                return {s} if s else set()
+            return {s[i : i + n] for i in range(len(s) - n + 1)}
+
+        gq = grams(query)
+        gd = grams(doc[:2000])  # keep cost bounded
+        if not gq or not gd:
+            return 0.0
+        inter = len(gq & gd)
+        union = len(gq | gd)
+        return inter / union if union else 0.0
 
     def get_memory_context(self, query: str | None = None) -> str:
         """
