@@ -13,8 +13,7 @@ description: 清洗网页 HTML 源码，提取纯文本，去除脚本、样式�
 3. 将 HTML 转换为 AI 易于分析的文本格式。
 
 ## 核心脚本
-脚本位置（主实现）：`workspace/skills/html-cleanup/scripts/clean_html.py`  
-兼容入口：`workspace/scripts/clean_html.py`
+脚本位置：`workspace/skills/html-cleanup/scripts/clean_html.py`
 
 ## 执行方式
 通过 `exec` 工具运行该 Python 脚本，并通过标准输入传入 HTML 内容。

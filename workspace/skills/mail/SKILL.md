@@ -43,7 +43,6 @@ metadata:
 - `workspace/skills/mail/scripts/check_emails.py`
 - `workspace/skills/mail/scripts/mark_gmail_read.py`
 - `workspace/skills/mail/scripts/mark_qq_read.py`
-- 兼容入口仍可用：`workspace/scripts/mail/*.py`
 
 ## 失败处理
 - 未配置：提示使用 `setup` 动作完成配置。

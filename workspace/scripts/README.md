@@ -7,7 +7,6 @@
 - Python 入口建议使用：`.venv/bin/python`
 - 默认数据目录建议固定：`NANOBOT_HOME=/Users/liusong/Downloads/nanobot/.home`
 - 通讯录文件：`/Users/liusong/Downloads/nanobot/workspace/scripts/contacts/contacts.json`
-- 若脚本已迁移到 `workspace/skills/<skill>/scripts/`，`workspace/scripts` 中会保留兼容入口（wrapper）。
 
 ## contacts（联系人管理）
 
@@ -42,26 +41,10 @@ NANOBOT_HOME=/Users/liusong/Downloads/nanobot/.home \
 
 ## mail（邮件巡检与已读处理）
 
-说明：
-- 本组脚本主实现位于：`workspace/skills/mail/scripts/`
-- 当前 `workspace/scripts/mail/*.py` 为兼容入口。
-
-入口脚本：
-- `mail/check_emails.py`
-- `mail/mark_gmail_read.py`
-- `mail/mark_qq_read.py`
-
-示例：
-```bash
-NANOBOT_HOME=/Users/liusong/Downloads/nanobot/.home \
-.venv/bin/python workspace/scripts/mail/check_emails.py
-
-NANOBOT_HOME=/Users/liusong/Downloads/nanobot/.home \
-.venv/bin/python workspace/scripts/mail/mark_gmail_read.py
-
-NANOBOT_HOME=/Users/liusong/Downloads/nanobot/.home \
-.venv/bin/python workspace/scripts/mail/mark_qq_read.py
-```
+该组脚本已归档到技能目录：
+- `workspace/skills/mail/scripts/check_emails.py`
+- `workspace/skills/mail/scripts/mark_gmail_read.py`
+- `workspace/skills/mail/scripts/mark_qq_read.py`
 
 ## telegram（Telegram 自动化）
 
@@ -107,15 +90,5 @@ bash workspace/scripts/vision/vision_optimizer.sh /tmp/in.png /tmp/out.png 1024
 
 ## html（HTML 清洗）
 
-说明：
-- 主实现位于：`workspace/skills/html-cleanup/scripts/clean_html.py`
-- `workspace/scripts/clean_html.py` 为兼容入口。
-
-入口脚本：
-- `clean_html.py`
-
-示例：
-```bash
-echo '<html><body><h1>标题</h1><script>alert(1)</script><p>正文</p></body></html>' | \
-.venv/bin/python workspace/scripts/clean_html.py
-```
+该脚本已归档到技能目录：
+- `workspace/skills/html-cleanup/scripts/clean_html.py`
