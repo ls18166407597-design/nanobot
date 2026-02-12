@@ -1,7 +1,8 @@
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import httpx
+
 from nanobot.agent.tools.base import Tool, ToolResult
 from nanobot.utils.helpers import get_tool_config_path
 
@@ -12,7 +13,7 @@ class TianAPITool(Tool):
     name = "tianapi"
     description = """
     Access Chinese social media trends and hot lists (Weibo, etc.) using TianAPI.
-    
+
     Actions:
     - 'network_hot': Get aggregated trends from across the Chinese internet.
     - 'weibo_hot': Get real-time Weibo hot search list.
@@ -22,9 +23,13 @@ class TianAPITool(Tool):
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["network_hot", "weibo_hot"],
+                "enum": ["network_hot", "weibo_hot", "area", "license_plate"],
                 "default": "network_hot",
-                "description": "The specific hot list to retrieve.",
+                "description": "Operation: hot lists, administrative divisions (area), or license plate lookup.",
+            },
+            "word": {
+                "type": "string",
+                "description": "Query word. For area: search name or code. For license_plate: e.g. '京A'."
             }
         },
         "required": ["action"],
@@ -56,47 +61,67 @@ class TianAPITool(Tool):
                 output="Error: TianAPI key is missing.",
                 remedy="请在 tianapi_config.json 中添加 key 字段。"
             )
-        
+
         # Map actions to TianAPI endpoints
         endpoint_map = {
             "network_hot": "networkhot",
-            "weibo_hot": "weibohot"
+            "weibo_hot": "weibohot",
+            "area": "area",
+            "license_plate": "chepai"
         }
-        
+
         api_name = endpoint_map.get(action, "networkhot")
         url = f"https://apis.tianapi.com/{api_name}/index"
         params = {"key": key}
 
+        # Add query parameters if provided
+        word = kwargs.get("word")
+        if word:
+            if action == "license_plate":
+                params["chepai"] = word
+            else:
+                params["word"] = word
+
         async with httpx.AsyncClient(timeout=10.0) as client:
             try:
-                # Some TianAPI endpoints prefer POST data, others work with params
                 resp = await client.post(url, data=params)
                 if resp.status_code != 200:
                     return ToolResult(success=False, output=f"TianAPI connection error ({resp.status_code})")
-                
+
                 data = resp.json()
                 if data.get("code") != 200:
                     msg = data.get("msg", "Unknown error")
                     return ToolResult(success=False, output=f"TianAPI error: {msg}")
 
-                res_list = data.get("result", {}).get("list", [])
-                if not res_list:
-                    return ToolResult(success=True, output=f"No {action} data found at the moment.")
+                result_data = data.get("result", {})
+                res_list = result_data.get("list") if isinstance(result_data, dict) else None
 
-                # Format results with flexible field mapping
+                # If no list, might be a direct object (common in some TianAPI responses)
+                if res_list is None and isinstance(result_data, dict) and result_data:
+                    res_list = [result_data]
+
+                if not res_list:
+                    return ToolResult(success=True, output=f"No {action} data found for '{word or 'default'}'.")
+
+                # Format results
                 output = [f"### TianAPI {action.replace('_', ' ').title()} Result\n"]
                 for i, item in enumerate(res_list[:20], 1):
-                    # TianAPI uses different field names for different APIs
-                    title = item.get("title") or item.get("hotword") or item.get("word") or "No Title"
-                    hot_score = item.get("hotnum") or item.get("hotwordnum") or item.get("index") or ""
-                    desc = item.get("digest") or item.get("content") or ""
-                    
-                    line = f"{i}. **{title}**"
-                    if hot_score:
-                        line += f" (Hot: {hot_score})"
-                    output.append(line)
-                    if desc and len(desc) > 5:
-                        output.append(f"   _{desc.strip()}_")
+                    if action == "license_plate":
+                        province = item.get("province", "")
+                        city = item.get("city", "")
+                        info = item.get("info", "")
+                        output.append(f"{i}. **{word}**: {province} {city} ({info})")
+                    elif action == "area":
+                        name = item.get("areaname") or item.get("name") or "Unknown"
+                        code = item.get("areacode") or item.get("id") or ""
+                        output.append(f"{i}. **{name}** (Code: {code})")
+                    else:
+                        title = item.get("title") or item.get("hotword") or item.get("word") or "No Title"
+                        hot_score = item.get("hotnum") or item.get("hotwordnum") or ""
+                        line = f"{i}. **{title}**"
+                        if hot_score:
+                            line += f" (Hot: {hot_score})"
+                        output.append(line)
 
                 return ToolResult(success=True, output="\n".join(output))
 
