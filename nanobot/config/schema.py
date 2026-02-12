@@ -142,8 +142,8 @@ class ToolPolicyConfig(BaseModel):
     """Tool routing policy configuration."""
 
     web_default: str = "tavily"  # tavily | browser
-    enable_mcp_fallback: bool = True
-    allow_explicit_mcp: bool = True
+    enable_mcp_fallback: bool = False
+    allow_explicit_mcp: bool = False
     intent_rules: list[dict[str, Any]] = Field(
         default_factory=lambda: [
             {"capability": "code_hosting", "keywords": ["github", "issue", "pr", "repo", "commit"]},
@@ -154,6 +154,7 @@ class ToolPolicyConfig(BaseModel):
     tool_capabilities: dict[str, list[str]] = Field(
         default_factory=lambda: {
             "github": ["code_hosting", "issue_tracking"],
+            "train_ticket": ["train_ticket"],
             "weather": ["weather"],
             "gmail": ["email"],
             "qq_mail": ["email"],

@@ -2,11 +2,7 @@
 
 from __future__ import annotations
 
-import json
-import re
 from typing import Any
-
-from nanobot.utils.helpers import get_tool_config_path
 
 
 class ToolPolicy:
@@ -19,8 +15,8 @@ class ToolPolicy:
         self,
         *,
         web_default: str = "tavily",
-        enable_mcp_fallback: bool = True,
-        allow_explicit_mcp: bool = True,
+        enable_mcp_fallback: bool = False,
+        allow_explicit_mcp: bool = False,
         intent_rules: list[dict[str, Any]] | None = None,
         tool_capabilities: dict[str, list[str]] | None = None,
     ):
@@ -34,6 +30,7 @@ class ToolPolicy:
         ]
         self.tool_capabilities = tool_capabilities or {
             "github": ["code_hosting", "issue_tracking"],
+            "train_ticket": ["train_ticket"],
             "weather": ["weather"],
             "gmail": ["email"],
             "qq_mail": ["email"],
@@ -52,26 +49,32 @@ class ToolPolicy:
             return tool_definitions
 
         latest_user = self._latest_user_text(messages).lower()
-        explicit_mcp = self._wants_mcp(latest_user)
         browser_needed = self._needs_browser(latest_user)
         target_capability = self._match_intent_capability(latest_user)
 
         if target_capability:
             preferred = self._pick_specialized_tool(tool_definitions, target_capability)
             if preferred and preferred not in failed_tools:
-                return self._keep_tool_with_non_web(tool_definitions, keep_tool=preferred, explicit_mcp=explicit_mcp)
-            return self._filter_web_tools(
-                tool_definitions=tool_definitions,
+                return self._drop_failed_tools(
+                    self._keep_tool_with_non_web(tool_definitions, keep_tool=preferred),
+                    failed_tools=failed_tools,
+                )
+            return self._drop_failed_tools(
+                self._filter_web_tools(
+                    tool_definitions=tool_definitions,
+                    failed_tools=failed_tools,
+                    browser_needed=browser_needed,
+                ),
                 failed_tools=failed_tools,
-                explicit_mcp=explicit_mcp,
-                browser_needed=browser_needed,
             )
 
-        return self._filter_web_tools(
-            tool_definitions=tool_definitions,
+        return self._drop_failed_tools(
+            self._filter_web_tools(
+                tool_definitions=tool_definitions,
+                failed_tools=failed_tools,
+                browser_needed=browser_needed,
+            ),
             failed_tools=failed_tools,
-            explicit_mcp=explicit_mcp,
-            browser_needed=browser_needed,
         )
 
     def _filter_web_tools(
@@ -79,7 +82,6 @@ class ToolPolicy:
         *,
         tool_definitions: list[dict[str, Any]],
         failed_tools: set[str],
-        explicit_mcp: bool,
         browser_needed: bool,
     ) -> list[dict[str, Any]]:
         web_present = {self._tool_name(td) for td in tool_definitions if self._tool_name(td) in self.WEB_TOOLS}
@@ -95,9 +97,7 @@ class ToolPolicy:
             allow_web.add(preferred)
 
         both_core_failed = "tavily" in failed_tools and "browser" in failed_tools
-        can_use_mcp = (self.allow_explicit_mcp and explicit_mcp) or (
-            self.enable_mcp_fallback and both_core_failed
-        )
+        can_use_mcp = self.enable_mcp_fallback and both_core_failed
         if can_use_mcp and "mcp" in web_present:
             allow_web.add("mcp")
 
@@ -105,7 +105,7 @@ class ToolPolicy:
             for n in ("tavily", "browser"):
                 if n in web_present:
                     allow_web.add(n)
-            if "mcp" in web_present and self.allow_explicit_mcp and explicit_mcp:
+            if "mcp" in web_present and can_use_mcp:
                 allow_web.add("mcp")
 
         filtered: list[dict[str, Any]] = []
@@ -123,53 +123,18 @@ class ToolPolicy:
     ) -> str | None:
         available = {self._tool_name(td) for td in tool_definitions}
 
-        # 1) dedicated tools with declared capability
+        # dedicated tools with declared capability
         for name, caps in self.tool_capabilities.items():
             if name in available and capability in set(caps):
                 return name
 
-        # 2) mcp server declares capability in mcp_config.json -> route to generic mcp tool
-        if "mcp" in available and self._mcp_supports_capability(capability):
-            return "mcp"
-
-        # 3) fallback for common MCP-first domains when mcp tool is available.
-        if "mcp" in available and capability in {"train_ticket", "maps", "flight_ticket"}:
-            return "mcp"
-
         return None
-
-    def _mcp_supports_capability(self, capability: str) -> bool:
-        cfg_path = get_tool_config_path("mcp_config.json")
-        if not cfg_path.exists():
-            return False
-        try:
-            with open(cfg_path, "r", encoding="utf-8") as f:
-                cfg = json.load(f)
-        except Exception:
-            return False
-        servers = cfg.get("servers", {})
-        if not isinstance(servers, dict):
-            return False
-        for name, server in servers.items():
-            if not isinstance(server, dict) or not bool(server.get("enabled", True)):
-                continue
-            caps = server.get("capabilities")
-            if isinstance(caps, list) and capability in {str(c) for c in caps}:
-                return True
-            # fallback heuristic for existing configs without capabilities
-            lowered = str(name).lower()
-            if capability == "train_ticket" and ("12306" in lowered or "train" in lowered):
-                return True
-            if capability == "code_hosting" and "github" in lowered:
-                return True
-        return False
 
     def _keep_tool_with_non_web(
         self,
         tool_definitions: list[dict[str, Any]],
         *,
         keep_tool: str,
-        explicit_mcp: bool,
     ) -> list[dict[str, Any]]:
         filtered: list[dict[str, Any]] = []
         for td in tool_definitions:
@@ -180,11 +145,6 @@ class ToolPolicy:
             if name in self.WEB_TOOLS:
                 continue
             filtered.append(td)
-        if explicit_mcp and keep_tool != "mcp":
-            for td in tool_definitions:
-                if self._tool_name(td) == "mcp" and td not in filtered:
-                    filtered.append(td)
-                    break
         return filtered
 
     def _match_intent_capability(self, text: str) -> str | None:
@@ -203,6 +163,14 @@ class ToolPolicy:
         fn = tool_def.get("function", {})
         return str(fn.get("name", ""))
 
+    def _drop_failed_tools(
+        self, tool_definitions: list[dict[str, Any]], *, failed_tools: set[str]
+    ) -> list[dict[str, Any]]:
+        if not failed_tools:
+            return tool_definitions
+        filtered = [td for td in tool_definitions if self._tool_name(td) not in failed_tools]
+        return filtered or tool_definitions
+
     def _latest_user_text(self, messages: list[dict[str, Any]]) -> str:
         for m in reversed(messages):
             if m.get("role") == "user":
@@ -210,9 +178,6 @@ class ToolPolicy:
                 if isinstance(content, str):
                     return content
         return ""
-
-    def _wants_mcp(self, text: str) -> bool:
-        return bool(re.search(r"mcp|model context protocol|playwright mcp|github mcp", text))
 
     def _needs_browser(self, text: str) -> bool:
         keywords = (

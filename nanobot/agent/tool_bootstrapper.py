@@ -24,6 +24,7 @@ from nanobot.agent.tools.skills import SkillsTool
 from nanobot.agent.tools.task import TaskTool
 from nanobot.agent.tools.tavily import TavilyTool
 from nanobot.agent.tools.tianapi import TianAPITool
+from nanobot.agent.tools.train_ticket import TrainTicketTool
 from nanobot.agent.tools.tushare import TushareTool
 from nanobot.agent.tools.weather import WeatherTool
 from nanobot.utils.helpers import get_tool_config_path
@@ -139,6 +140,8 @@ class ToolBootstrapper:
             self.tools.register(TushareTool())
         if self._tool_enabled("feishu"):
             self.tools.register(FeishuTool())
+        if self._tool_enabled("train_ticket"):
+            self.tools.register(TrainTicketTool())
 
         if self._tool_enabled("skills"):
             self.tools.register(

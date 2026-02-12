@@ -3,9 +3,9 @@
 本文件只描述工具分工与配置位置，不承载人格或执行铁律。
 
 ## 联网工具分工
+- `train_ticket`：火车票查询能力（优先使用）。
 - `tavily`：API 检索能力。
 - `browser`：页面渲染/交互能力。
-- `mcp`：外部扩展能力。
 - 具体选择顺序由运行时 ToolPolicy 决定，本文件不重复定义策略细节。
 
 ## 常用组合
@@ -24,4 +24,4 @@
 - `tianapi` -> `tianapi_config.json`
 - `tushare` -> `tushare_config.json`
 - `feishu` -> `feishu_config.json`
-- `mcp` -> `mcp_config.json`
+- `train_ticket` -> `mcp_config.json`（读取 `servers.12306`）

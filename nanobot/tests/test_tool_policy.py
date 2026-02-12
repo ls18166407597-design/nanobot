@@ -1,5 +1,3 @@
-import json
-
 from nanobot.agent.tool_policy import ToolPolicy
 
 
@@ -38,14 +36,14 @@ def test_tool_policy_allows_mcp_only_when_explicit_or_fallback():
         tool_definitions=_defs("tavily", "browser", "mcp"),
         failed_tools=set(),
     )
-    assert "mcp" in _names(out1)
+    assert "mcp" not in _names(out1)
 
     out2 = policy.filter_tools(
         messages=[{"role": "user", "content": "查一下这个问题"}],
         tool_definitions=_defs("tavily", "browser", "mcp"),
         failed_tools={"tavily", "browser"},
     )
-    assert "mcp" in _names(out2)
+    assert "mcp" not in _names(out2)
 
 
 def test_tool_policy_configurable_defaults_and_mcp_toggle():
@@ -65,22 +63,22 @@ def test_tool_policy_configurable_defaults_and_mcp_toggle():
     assert "mcp" not in _names(out2)
 
 
-def test_tool_policy_domain_route_train_prefers_mcp():
+def test_tool_policy_domain_route_train_prefers_dedicated_tool():
     policy = ToolPolicy()
     out = policy.filter_tools(
         messages=[{"role": "user", "content": "帮我查一下12306火车票余票"}],
-        tool_definitions=_defs("tavily", "browser", "mcp", "read_file"),
+        tool_definitions=_defs("train_ticket", "tavily", "browser", "mcp", "read_file"),
         failed_tools=set(),
     )
-    assert _names(out) == ["mcp", "read_file"]
+    assert _names(out) == ["train_ticket", "read_file"]
 
 
-def test_tool_policy_domain_route_train_fallback_to_web_after_mcp_fail():
+def test_tool_policy_domain_route_train_fallback_to_web_after_tool_fail():
     policy = ToolPolicy()
     out = policy.filter_tools(
         messages=[{"role": "user", "content": "帮我查一下12306火车票余票"}],
-        tool_definitions=_defs("tavily", "browser", "mcp"),
-        failed_tools={"mcp"},
+        tool_definitions=_defs("train_ticket", "tavily", "browser", "mcp"),
+        failed_tools={"train_ticket"},
     )
     assert _names(out) == ["tavily"]
 
@@ -95,33 +93,14 @@ def test_tool_policy_domain_route_github_prefers_github_tool():
     assert _names(out) == ["github"]
 
 
-def test_tool_policy_new_domain_via_config_and_mcp_capabilities(tmp_path, monkeypatch):
-    home = tmp_path / ".home"
-    cfg_dir = home / "tool_configs"
-    cfg_dir.mkdir(parents=True, exist_ok=True)
-    (cfg_dir / "mcp_config.json").write_text(
-        json.dumps(
-            {
-                "servers": {
-                    "flight": {
-                        "command": "npx",
-                        "args": ["-y", "flight-mcp"],
-                        "enabled": True,
-                        "capabilities": ["flight_ticket"],
-                    }
-                }
-            }
-        ),
-        encoding="utf-8",
-    )
-    monkeypatch.setenv("NANOBOT_HOME", str(home))
+def test_tool_policy_new_domain_via_config_maps_to_dedicated_tool():
     policy = ToolPolicy(
         intent_rules=[{"capability": "flight_ticket", "keywords": ["机票", "航班"]}],
-        tool_capabilities={},
+        tool_capabilities={"flight_ticket": ["flight_ticket"]},
     )
     out = policy.filter_tools(
         messages=[{"role": "user", "content": "帮我查明天机票"}],
-        tool_definitions=_defs("mcp", "tavily", "browser"),
+        tool_definitions=_defs("flight_ticket", "tavily", "browser", "mcp"),
         failed_tools=set(),
     )
-    assert _names(out) == ["mcp"]
+    assert _names(out) == ["flight_ticket"]
