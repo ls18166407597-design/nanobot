@@ -38,6 +38,7 @@ class TurnEngine:
         loop_break_reply: str,
         max_total_tool_calls: int = 30,
         max_turn_seconds: int = 45,
+        hook_registry: Any | None = None,
     ):
         self.context = context
         self.executor = executor
@@ -51,6 +52,7 @@ class TurnEngine:
         self.loop_break_reply = loop_break_reply
         self.max_total_tool_calls = max_total_tool_calls
         self.max_turn_seconds = max_turn_seconds
+        self.hook_registry = hook_registry
 
     async def run(
         self,
@@ -79,11 +81,21 @@ class TurnEngine:
                     messages=messages,
                     reason=f"单轮处理超时（>{self.max_turn_seconds}s）",
                 )
+                await self._trigger_hook(
+                    "turn_iteration_end",
+                    {"trace_id": trace_id, "iteration": iteration, "status": "turn_timeout", "tool_calls": 0},
+                )
                 break
 
             iteration += 1
+            await self._trigger_hook(
+                "turn_iteration_start",
+                {"trace_id": trace_id, "iteration": iteration, "max_iterations": self.max_iterations},
+            )
             if trace_id:
                 logger.debug(f"[TraceID: {trace_id}] Starting iteration {iteration}")
+            iteration_state = "running"
+            current_tool_calls_count = 0
 
             try:
                 remaining = max(0.5, deadline - time.monotonic())
@@ -99,25 +111,66 @@ class TurnEngine:
                     messages=messages,
                     reason=f"模型响应超时（>{self.max_turn_seconds}s）",
                 )
+                iteration_state = "model_timeout"
+                await self._trigger_hook(
+                    "turn_iteration_end",
+                    {
+                        "trace_id": trace_id,
+                        "iteration": iteration,
+                        "status": iteration_state,
+                        "tool_calls": current_tool_calls_count,
+                    },
+                )
                 break
             except Exception:
                 final_content = await self._finalize_after_budget(
                     messages=messages,
                     reason="模型调用异常，触发最终总结",
                 )
+                iteration_state = "model_error"
+                await self._trigger_hook(
+                    "turn_iteration_end",
+                    {
+                        "trace_id": trace_id,
+                        "iteration": iteration,
+                        "status": iteration_state,
+                        "tool_calls": current_tool_calls_count,
+                    },
+                )
                 break
 
             tool_calls = response.tool_calls
             if not tool_calls and parse_calls_from_text and response.content:
                 tool_calls = self.parse_tool_calls_from_text(response.content)
+            current_tool_calls_count = len(tool_calls or [])
 
             if not tool_calls:
                 final_content = response.content
+                iteration_state = "final_text"
+                await self._trigger_hook(
+                    "turn_iteration_end",
+                    {
+                        "trace_id": trace_id,
+                        "iteration": iteration,
+                        "status": iteration_state,
+                        "tool_calls": current_tool_calls_count,
+                    },
+                )
                 break
 
             clarification = self._clarification_needed(messages=messages, tool_calls=tool_calls)
             if clarification:
                 final_content = clarification
+                iteration_state = "clarification_required"
+                await self._trigger_hook(
+                    "turn_iteration_end",
+                    {
+                        "trace_id": trace_id,
+                        "iteration": iteration,
+                        "status": iteration_state,
+                        "tool_calls": current_tool_calls_count,
+                    },
+                )
                 break
 
             budget_reason = self._tool_budget_reason(
@@ -129,6 +182,16 @@ class TurnEngine:
             )
             if budget_reason:
                 final_content = await self._finalize_after_budget(messages=messages, reason=budget_reason)
+                iteration_state = "budget_limited"
+                await self._trigger_hook(
+                    "turn_iteration_end",
+                    {
+                        "trace_id": trace_id,
+                        "iteration": iteration,
+                        "status": iteration_state,
+                        "tool_calls": current_tool_calls_count,
+                    },
+                )
                 break
 
             is_strict_loop, current_ids, current_hashes = self._evaluate_loop_repetition(
@@ -147,12 +210,32 @@ class TurnEngine:
                     self._inject_self_correction(messages)
                     seen_tool_call_hashes.clear()
                     seen_tool_call_ids.clear()
+                    iteration_state = "loop_corrected"
+                    await self._trigger_hook(
+                        "turn_iteration_end",
+                        {
+                            "trace_id": trace_id,
+                            "iteration": iteration,
+                            "status": iteration_state,
+                            "tool_calls": current_tool_calls_count,
+                        },
+                    )
                     continue
                 if trace_id:
                     logger.error(f"[TraceID: {trace_id}] Permanent loop detected after retry. Breaking turn.")
                 else:
                     logger.error("Permanent system loop detected after retry. Breaking turn.")
                 final_content = response.content or self.loop_break_reply
+                iteration_state = "loop_broken"
+                await self._trigger_hook(
+                    "turn_iteration_end",
+                    {
+                        "trace_id": trace_id,
+                        "iteration": iteration,
+                        "status": iteration_state,
+                        "tool_calls": current_tool_calls_count,
+                    },
+                )
                 break
 
             for tid in current_ids:
@@ -182,13 +265,35 @@ class TurnEngine:
                 tool_call_counts[tc.name] = tool_call_counts.get(tc.name, 0) + 1
             if compact_after_tools:
                 await self._compact_messages_if_needed(messages, trace_id)
+            iteration_state = "tool_round_completed"
+            await self._trigger_hook(
+                "turn_iteration_end",
+                {
+                    "trace_id": trace_id,
+                    "iteration": iteration,
+                    "status": iteration_state,
+                    "tool_calls": current_tool_calls_count,
+                },
+            )
 
         if self._is_empty_like_response(final_content):
             final_content = await self._finalize_after_budget(
                 messages=messages,
                 reason="模型未返回有效文本，触发最终总结",
             )
+        await self._trigger_hook(
+            "turn_end",
+            {"trace_id": trace_id, "iterations": iteration, "has_content": bool((final_content or "").strip())},
+        )
         return final_content
+
+    async def _trigger_hook(self, event: str, payload: dict[str, Any]) -> None:
+        if self.hook_registry is None:
+            return
+        trigger = getattr(self.hook_registry, "trigger_hook", None)
+        if not callable(trigger):
+            return
+        await trigger(event, payload)
 
     def _is_empty_like_response(self, content: str | None) -> bool:
         if content is None:

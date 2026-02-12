@@ -99,3 +99,14 @@ NANOBOT_HOME=/Users/liusong/Downloads/nanobot/.home \
 ```bash
 bash workspace/scripts/vision/vision_optimizer.sh /tmp/in.png /tmp/out.png 1024
 ```
+
+## html（HTML 清洗）
+
+入口脚本：
+- `clean_html.py`
+
+示例：
+```bash
+echo '<html><body><h1>标题</h1><script>alert(1)</script><p>正文</p></body></html>' | \
+.venv/bin/python workspace/scripts/clean_html.py
+```

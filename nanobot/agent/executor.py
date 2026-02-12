@@ -22,6 +22,7 @@ class ToolExecutor:
         registry: ToolRegistryProtocol,
         max_failed_history: int = 100,
         failed_ttl_seconds: int = 600,
+        hook_registry: Any | None = None,
     ):
         self.registry = registry
         self.failed_call_hashes: Set[str] = set()
@@ -29,6 +30,7 @@ class ToolExecutor:
         self.max_failed_history = max_failed_history
         self.failed_ttl_seconds = failed_ttl_seconds
         self._failed_meta: Dict[str, Dict[str, Any]] = {}
+        self.hook_registry = hook_registry
 
     def _get_call_hash(self, name: str, params: Dict[str, Any]) -> str:
         # Use shared hash builder to keep loop policy consistent with TurnEngine.
@@ -40,13 +42,17 @@ class ToolExecutor:
 
     async def execute(self, name: str, params: Dict[str, Any]) -> "ToolResult":
         call_hash = self._get_call_hash(name, params)
+        await self._trigger_hook(
+            "tool_before",
+            {"tool": name, "params": params, "call_hash": call_hash},
+        )
         
         now = time.time()
         # 1. Repeat failure interception (Local Loop Protection) with TTL
         self._prune_failed(now)
         if call_hash in self.failed_call_hashes:
             logger.warning(f"Intercepted repeat failure for tool '{name}' with hash {call_hash[:8]}")
-            return ToolResult(
+            result = ToolResult(
                 success=False,
                 output=(
                     f"Blocked: 您刚才已经尝试过使用相同的参数调用工具 '{name}' 且失败了。\n"
@@ -55,6 +61,11 @@ class ToolExecutor:
                 ),
                 remedy="请检查参数是否由于路径错误或权限问题导致之前执行失败，并尝试修正它们。"
             )
+            await self._trigger_hook(
+                "tool_after",
+                {"tool": name, "params": params, "call_hash": call_hash, "success": False, "blocked": True},
+            )
+            return result
 
         try:
             # 1. Generic Type Sanitization (Centralized Defense)
@@ -92,18 +103,55 @@ class ToolExecutor:
                     )
                 else:
                     res.output = refined_msg
+                await self._trigger_hook(
+                    "tool_after",
+                    {
+                        "tool": name,
+                        "params": params,
+                        "call_hash": call_hash,
+                        "success": False,
+                        "severity": str(getattr(res, "severity", "")),
+                    },
+                )
                 return res
             
+            await self._trigger_hook(
+                "tool_after",
+                {
+                    "tool": name,
+                    "params": params,
+                    "call_hash": call_hash,
+                    "success": True,
+                    "severity": str(getattr(res, "severity", "")),
+                },
+            )
             return res
 
         except Exception as e:
             tb = traceback.format_exc()
             logger.error(f"Unexpected error in ToolExecutor for {name}: {tb}")
+            await self._trigger_hook(
+                "tool_error",
+                {
+                    "tool": name,
+                    "params": params,
+                    "call_hash": call_hash,
+                    "error": f"{type(e).__name__}: {e}",
+                },
+            )
             return ToolResult(
                 success=False,
                 output=f"Error: 内部系统错误 ({type(e).__name__}: {str(e)})。",
                 remedy="建议检查您的指令输入语法，或稍后重试。若问题持续，请联系管理员。"
             )
+
+    async def _trigger_hook(self, event: str, payload: Dict[str, Any]) -> None:
+        if self.hook_registry is None:
+            return
+        trigger = getattr(self.hook_registry, "trigger_hook", None)
+        if not callable(trigger):
+            return
+        await trigger(event, payload)
 
     def _refine_error(self, name: str, params: Dict[str, Any], raw_error: str) -> str:
         """Transform technical errors into AI-actionable instructions."""

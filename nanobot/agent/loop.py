@@ -31,6 +31,7 @@ from nanobot.agent.tool_bootstrapper import ToolBootstrapper
 from nanobot.agent.message_flow import MessageFlowCoordinator
 from nanobot.agent.system_turn_service import SystemTurnService
 from nanobot.agent.user_turn_service import UserTurnService
+from nanobot.hooks import HookRegistry
 
 
 class AgentLoop:
@@ -89,7 +90,8 @@ class AgentLoop:
         self.context = ContextBuilder(workspace, model=self.model, brain_config=self.brain_config)
         self.sessions = SessionManager(workspace)
         self.tools = ToolRegistry()
-        self.executor = ToolExecutor(self.tools)
+        self.hook_registry = HookRegistry()
+        self.executor = ToolExecutor(self.tools, hook_registry=self.hook_registry)
         self.turn_engine = TurnEngine(
             context=self.context,
             executor=self.executor,
@@ -103,6 +105,7 @@ class AgentLoop:
             loop_break_reply=self.LOOP_BREAK_REPLY,
             max_total_tool_calls=max(1, int(getattr(self.brain_config, "max_total_tool_calls", 30))),
             max_turn_seconds=max(5, int(getattr(self.brain_config, "max_turn_seconds", 45))),
+            hook_registry=self.hook_registry,
         )
         self.system_turn_service = SystemTurnService(
             sessions=self.sessions,
