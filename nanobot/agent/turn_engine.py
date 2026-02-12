@@ -153,9 +153,18 @@ class TurnEngine:
             if compact_after_tools:
                 await self._compact_messages_if_needed(messages, trace_id)
 
-        if final_content is None:
-            final_content = await self._finalize_after_budget(messages=messages, reason="已达到本轮工具迭代上限")
+        if self._is_empty_like_response(final_content):
+            final_content = await self._finalize_after_budget(
+                messages=messages,
+                reason="模型未返回有效文本，触发最终总结",
+            )
         return final_content
+
+    def _is_empty_like_response(self, content: str | None) -> bool:
+        if content is None:
+            return True
+        text = content.strip()
+        return text in {"", "[正在处理中...]", "正在处理中..."}
 
     def _inject_self_correction(self, messages: list[dict[str, Any]]) -> None:
         messages.append({"role": "system", "content": self.self_correction_prompt})

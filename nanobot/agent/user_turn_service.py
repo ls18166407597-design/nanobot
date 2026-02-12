@@ -69,7 +69,7 @@ class UserTurnService:
             final_content = "我已经完成了处理，但暂时没有需要回复的具体内容。"
 
         final_content = self.filter_reasoning(str(final_content))
-        if final_content.strip() in {"[正在处理中...]", "正在处理中...", ""}:
+        if final_content.strip() == "":
             final_content = "本次未产出有效结果，可能模型或工具链暂时不可用。请重试一次。"
         session.add_message("user", msg.content)
 
