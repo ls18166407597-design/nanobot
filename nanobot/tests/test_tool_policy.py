@@ -1,3 +1,5 @@
+import json
+
 from nanobot.agent.tool_policy import ToolPolicy
 
 
@@ -61,3 +63,65 @@ def test_tool_policy_configurable_defaults_and_mcp_toggle():
         failed_tools={"tavily", "browser"},
     )
     assert "mcp" not in _names(out2)
+
+
+def test_tool_policy_domain_route_train_prefers_mcp():
+    policy = ToolPolicy()
+    out = policy.filter_tools(
+        messages=[{"role": "user", "content": "帮我查一下12306火车票余票"}],
+        tool_definitions=_defs("tavily", "browser", "mcp", "read_file"),
+        failed_tools=set(),
+    )
+    assert _names(out) == ["mcp", "read_file"]
+
+
+def test_tool_policy_domain_route_train_fallback_to_web_after_mcp_fail():
+    policy = ToolPolicy()
+    out = policy.filter_tools(
+        messages=[{"role": "user", "content": "帮我查一下12306火车票余票"}],
+        tool_definitions=_defs("tavily", "browser", "mcp"),
+        failed_tools={"mcp"},
+    )
+    assert _names(out) == ["tavily"]
+
+
+def test_tool_policy_domain_route_github_prefers_github_tool():
+    policy = ToolPolicy()
+    out = policy.filter_tools(
+        messages=[{"role": "user", "content": "帮我看一下这个仓库的PR和issue"}],
+        tool_definitions=_defs("github", "tavily", "browser", "mcp"),
+        failed_tools=set(),
+    )
+    assert _names(out) == ["github"]
+
+
+def test_tool_policy_new_domain_via_config_and_mcp_capabilities(tmp_path, monkeypatch):
+    home = tmp_path / ".home"
+    cfg_dir = home / "tool_configs"
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    (cfg_dir / "mcp_config.json").write_text(
+        json.dumps(
+            {
+                "servers": {
+                    "flight": {
+                        "command": "npx",
+                        "args": ["-y", "flight-mcp"],
+                        "enabled": True,
+                        "capabilities": ["flight_ticket"],
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("NANOBOT_HOME", str(home))
+    policy = ToolPolicy(
+        intent_rules=[{"capability": "flight_ticket", "keywords": ["机票", "航班"]}],
+        tool_capabilities={},
+    )
+    out = policy.filter_tools(
+        messages=[{"role": "user", "content": "帮我查明天机票"}],
+        tool_definitions=_defs("mcp", "tavily", "browser"),
+        failed_tools=set(),
+    )
+    assert _names(out) == ["mcp"]

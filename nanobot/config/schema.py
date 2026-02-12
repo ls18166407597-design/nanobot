@@ -1,6 +1,7 @@
 """Configuration schema using Pydantic."""
 
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -143,6 +144,23 @@ class ToolPolicyConfig(BaseModel):
     web_default: str = "tavily"  # tavily | browser
     enable_mcp_fallback: bool = True
     allow_explicit_mcp: bool = True
+    intent_rules: list[dict[str, Any]] = Field(
+        default_factory=lambda: [
+            {"capability": "code_hosting", "keywords": ["github", "issue", "pr", "repo", "commit"]},
+            {"capability": "train_ticket", "keywords": ["火车票", "12306", "车次", "余票", "高铁", "动车"]},
+            {"capability": "weather", "keywords": ["天气", "气温", "降雨", "湿度", "风力", "空气质量", "aqi"]},
+        ]
+    )
+    tool_capabilities: dict[str, list[str]] = Field(
+        default_factory=lambda: {
+            "github": ["code_hosting", "issue_tracking"],
+            "weather": ["weather"],
+            "gmail": ["email"],
+            "qq_mail": ["email"],
+            "tushare": ["finance"],
+            "tianapi": ["news"],
+        }
+    )
 
 
 class ToolsConfig(BaseModel):

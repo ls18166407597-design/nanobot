@@ -13,11 +13,17 @@ from nanobot.agent.task_manager import TaskManager
 class CronTool(Tool):
     """Tool to schedule reminders and recurring tasks."""
 
-    def __init__(self, cron_service: CronService, task_storage_path: Path | None = None):
+    def __init__(
+        self,
+        cron_service: CronService,
+        task_storage_path: Path | None = None,
+        default_tz: str = "Asia/Shanghai",
+    ):
         self._cron = cron_service
         self._channel = ""
         self._chat_id = ""
         self._task_storage_path = task_storage_path
+        self._default_tz = default_tz
 
     def set_context(self, channel: str, chat_id: str) -> None:
         """Set the current session context for delivery."""
@@ -55,6 +61,10 @@ class CronTool(Tool):
                     "type": "string",
                     "description": "Cron expression like '0 9 * * *' (for scheduled tasks)",
                 },
+                "tz": {
+                    "type": "string",
+                    "description": "IANA timezone for cron_expr, default Asia/Shanghai",
+                },
                 "in_seconds": {
                     "type": "integer",
                     "description": "Run once after X seconds (for one-off reminders)",
@@ -71,13 +81,14 @@ class CronTool(Tool):
         task_name: str | None = None,
         every_seconds: int | None = None,
         cron_expr: str | None = None,
+        tz: str | None = None,
         in_seconds: int | None = None,
         job_id: str | None = None,
         **kwargs: Any,
     ) -> ToolResult:
         try:
             if action == "add":
-                output = self._add_job(message, task_name, every_seconds, cron_expr, in_seconds)
+                output = self._add_job(message, task_name, every_seconds, cron_expr, tz, in_seconds)
                 if output.startswith("Error"):
                     return ToolResult(success=False, output=output, remedy="请检查参数，确保提供了 message 或 task_name，且有且只有一个时间调度参数。")
                 return ToolResult(success=True, output=output)
@@ -100,6 +111,7 @@ class CronTool(Tool):
         task_name: str | None,
         every_seconds: int | None,
         cron_expr: str | None,
+        tz: str | None,
         in_seconds: int | None,
     ) -> str:
         if not message and not task_name:
@@ -115,21 +127,23 @@ class CronTool(Tool):
         if in_seconds is not None and in_seconds <= 0:
             return "Error: in_seconds must be > 0"
 
-        # If task_name provided, convert to a task run command
+        # If task_name provided, create a deterministic task_run payload (skip LLM tool-planning loop).
+        payload_kind = "agent_turn"
         if task_name:
             if not self._task_storage_path:
                 return "Error: task storage not configured"
             manager = TaskManager(storage_path=self._task_storage_path)
             if not manager.get(task_name):
                 return f"Error: task '{task_name}' not found"
-            message = f"请调用 task 工具执行任务，name=\"{task_name}\""
+            message = f"[task_run] {task_name}"
+            payload_kind = "task_run"
 
         # Build schedule
         delete_after_run = False
         if every_seconds:
             schedule = CronSchedule(kind="every", every_ms=every_seconds * 1000)
         elif cron_expr:
-            schedule = CronSchedule(kind="cron", expr=cron_expr)
+            schedule = CronSchedule(kind="cron", expr=cron_expr, tz=(tz or self._default_tz))
         elif in_seconds:
             import time
             schedule = CronSchedule(kind="at", at_ms=int(time.time() * 1000) + (in_seconds * 1000))
@@ -141,6 +155,7 @@ class CronTool(Tool):
             name=message[:30],
             schedule=schedule,
             message=message,
+            payload_kind=payload_kind,
             task_name=task_name,
             deliver=True,
             channel=self._channel,
@@ -166,7 +181,8 @@ class CronTool(Tool):
             if j.schedule.kind == "every":
                 sched = f"every {int((j.schedule.every_ms or 0) / 1000)}s"
             elif j.schedule.kind == "cron":
-                sched = f"cron {j.schedule.expr or ''}".strip()
+                tz = j.schedule.tz or self._default_tz
+                sched = f"cron {j.schedule.expr or ''} ({tz})".strip()
             elif j.schedule.kind == "at":
                 sched = f"at {_fmt_ts(j.schedule.at_ms)}"
 

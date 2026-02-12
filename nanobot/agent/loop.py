@@ -109,6 +109,8 @@ class AgentLoop:
                 web_default=getattr(self.tools_config.policy, "web_default", "tavily"),
                 enable_mcp_fallback=bool(getattr(self.tools_config.policy, "enable_mcp_fallback", True)),
                 allow_explicit_mcp=bool(getattr(self.tools_config.policy, "allow_explicit_mcp", True)),
+                intent_rules=list(getattr(self.tools_config.policy, "intent_rules", []) or []),
+                tool_capabilities=dict(getattr(self.tools_config.policy, "tool_capabilities", {}) or {}),
             ),
         )
         self.system_turn_service = SystemTurnService(

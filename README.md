@@ -50,7 +50,7 @@
 
 ## 🧰 任务与调度 (Task + Cron)
 - **任务库**: `task(action="create", name="日报", description="生成日报", command="python scripts/daily.py")`
-- **定时执行**: `cron(action="add", task_name="日报", cron_expr="0 9 * * *")`
+- **定时执行**: `cron(action="add", task_name="日报", cron_expr="0 9 * * *", tz="Asia/Shanghai")`
 - **任务执行参数**: `task(action="run", name="日报", working_dir=".", timeout=60, confirm=true)`
 - **后台子任务管理**: `spawn(action="list")` / `spawn(action="status", task_id="...")` / `spawn(action="cancel", task_id="...")`
 

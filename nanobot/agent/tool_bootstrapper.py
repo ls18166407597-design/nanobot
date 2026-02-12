@@ -95,7 +95,13 @@ class ToolBootstrapper:
 
         task_storage_path = get_data_dir() / "tasks.json"
         if self.cron_service and self._tool_enabled("cron"):
-            self.tools.register(CronTool(self.cron_service, task_storage_path=task_storage_path))
+            self.tools.register(
+                CronTool(
+                    self.cron_service,
+                    task_storage_path=task_storage_path,
+                    default_tz=str(getattr(self.brain_config, "timezone", "Asia/Shanghai") or "Asia/Shanghai"),
+                )
+            )
 
         if self._tool_enabled("gmail"):
             self.tools.register(GmailTool())

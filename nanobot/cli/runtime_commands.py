@@ -415,7 +415,10 @@ def cmd_gateway(console, logo: str, port: int, verbose: bool) -> None:
 
     provider = ProviderFactory.get_provider(api_key=api_key, api_base=api_base, model=model)
     cron_store_path = get_data_dir() / "cron" / "jobs.json"
-    cron = CronService(cron_store_path)
+    cron = CronService(
+        cron_store_path,
+        default_tz=str(getattr(config.brain, "timezone", "Asia/Shanghai") or "Asia/Shanghai"),
+    )
     web_proxy = config.tools.web.proxy or config.channels.telegram.proxy
 
     agent = AgentLoop(
@@ -436,18 +439,25 @@ def cmd_gateway(console, logo: str, port: int, verbose: bool) -> None:
     )
 
     async def on_cron_job(job: CronJob) -> str | None:
-        from nanobot.utils.helpers import audit_log
         from nanobot.bus.events import OutboundMessage
+        from nanobot.utils.helpers import audit_log
 
         audit_log("cron_start", {"job_id": job.id, "message": job.payload.message})
         try:
-            response = await agent.process_direct(
-                job.payload.message,
-                session_key=f"cron:{job.id}",
-                channel=job.payload.channel or "cli",
-                chat_id=job.payload.to or "direct",
-                lane=CommandLane.BACKGROUND,
-            )
+            if job.payload.kind == "task_run" and job.payload.task_name:
+                task_tool = agent.tools.get("task")
+                if task_tool is None:
+                    raise RuntimeError("task tool is not available for cron task_run")
+                task_result = await task_tool.execute(action="run", name=job.payload.task_name)
+                response = str(getattr(task_result, "output", task_result))
+            else:
+                response = await agent.process_direct(
+                    job.payload.message,
+                    session_key=f"cron:{job.id}",
+                    channel=job.payload.channel or "cli",
+                    chat_id=job.payload.to or "direct",
+                    lane=CommandLane.BACKGROUND,
+                )
             audit_log("cron_complete", {"job_id": job.id, "success": True})
             if job.payload.deliver and job.payload.to:
                 await bus.publish_outbound(

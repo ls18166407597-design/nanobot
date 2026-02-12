@@ -466,11 +466,15 @@ def cron_list(
     all: bool = typer.Option(False, "--all", "-a", help="Include disabled jobs"),
 ):
     """List scheduled jobs."""
-    from nanobot.config.loader import get_data_dir
+    from nanobot.config.loader import get_data_dir, load_config
     from nanobot.cron.service import CronService
 
+    config = load_config()
     store_path = get_data_dir() / "cron" / "jobs.json"
-    service = CronService(store_path)
+    service = CronService(
+        store_path,
+        default_tz=str(getattr(config.brain, "timezone", "Asia/Shanghai") or "Asia/Shanghai"),
+    )
 
     jobs = service.list_jobs(include_disabled=all)
 
@@ -525,7 +529,7 @@ def cron_add(
     ),
 ):
     """Add a scheduled job."""
-    from nanobot.config.loader import get_data_dir
+    from nanobot.config.loader import get_data_dir, load_config
     from nanobot.cron.service import CronService
     from nanobot.cron.types import CronSchedule
 
@@ -543,8 +547,12 @@ def cron_add(
         console.print("[red]Error: Must specify --every, --cron, or --at[/red]")
         raise typer.Exit(1)
 
+    config = load_config()
     store_path = get_data_dir() / "cron" / "jobs.json"
-    service = CronService(store_path)
+    service = CronService(
+        store_path,
+        default_tz=str(getattr(config.brain, "timezone", "Asia/Shanghai") or "Asia/Shanghai"),
+    )
 
     job = service.add_job(
         name=name,
@@ -563,11 +571,15 @@ def cron_remove(
     job_id: str = typer.Argument(..., help="Job ID to remove"),
 ):
     """Remove a scheduled job."""
-    from nanobot.config.loader import get_data_dir
+    from nanobot.config.loader import get_data_dir, load_config
     from nanobot.cron.service import CronService
 
+    config = load_config()
     store_path = get_data_dir() / "cron" / "jobs.json"
-    service = CronService(store_path)
+    service = CronService(
+        store_path,
+        default_tz=str(getattr(config.brain, "timezone", "Asia/Shanghai") or "Asia/Shanghai"),
+    )
 
     if service.remove_job(job_id):
         console.print(f"[green]✓[/green] Removed job {job_id}")
@@ -581,11 +593,15 @@ def cron_enable(
     disable: bool = typer.Option(False, "--disable", help="Disable instead of enable"),
 ):
     """Enable or disable a job."""
-    from nanobot.config.loader import get_data_dir
+    from nanobot.config.loader import get_data_dir, load_config
     from nanobot.cron.service import CronService
 
+    config = load_config()
     store_path = get_data_dir() / "cron" / "jobs.json"
-    service = CronService(store_path)
+    service = CronService(
+        store_path,
+        default_tz=str(getattr(config.brain, "timezone", "Asia/Shanghai") or "Asia/Shanghai"),
+    )
 
     job = service.enable_job(job_id, enabled=not disable)
     if job:
@@ -601,11 +617,15 @@ def cron_run(
     force: bool = typer.Option(False, "--force", "-f", help="Run even if disabled"),
 ):
     """Manually run a job."""
-    from nanobot.config.loader import get_data_dir
+    from nanobot.config.loader import get_data_dir, load_config
     from nanobot.cron.service import CronService
 
+    config = load_config()
     store_path = get_data_dir() / "cron" / "jobs.json"
-    service = CronService(store_path)
+    service = CronService(
+        store_path,
+        default_tz=str(getattr(config.brain, "timezone", "Asia/Shanghai") or "Asia/Shanghai"),
+    )
 
     async def run():
         return await service.run_job(job_id, force=force)
