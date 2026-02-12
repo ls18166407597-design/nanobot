@@ -148,12 +148,14 @@ class ToolPolicyConfig(BaseModel):
             {"capability": "code_hosting", "keywords": ["github", "issue", "pr", "repo", "commit"]},
             {"capability": "train_ticket", "keywords": ["火车票", "12306", "车次", "余票", "高铁", "动车"]},
             {"capability": "weather", "keywords": ["天气", "气温", "降雨", "湿度", "风力", "空气质量", "aqi"]},
+            {"capability": "email", "keywords": ["邮件", "邮箱", "收件箱", "发邮件", "gmail", "qq邮箱"]},
         ]
     )
     tool_capabilities: dict[str, list[str]] = Field(
         default_factory=lambda: {
             "github": ["code_hosting", "issue_tracking"],
             "train_ticket": ["train_ticket"],
+            "mail": ["email"],
             "weather": ["weather"],
             "gmail": ["email"],
             "qq_mail": ["email"],

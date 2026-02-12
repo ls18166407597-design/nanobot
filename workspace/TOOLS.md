@@ -9,6 +9,21 @@
 - `browser`：页面渲染/交互能力。
 - 具体选择顺序由运行时 ToolPolicy 决定，本文件不重复定义策略细节。
 
+## 邮件工具分工
+- `mail`：统一邮件入口（优先使用）。
+- `gmail`：Gmail 协议实现（mail 内部路由可调用）。
+- `qq_mail`：QQ 邮箱协议实现（mail 内部路由可调用）。
+
+## 技能-工具映射
+- `automated-messaging` -> `message`, `mac_control`, `mac_vision`, `exec`
+- `computer-control` -> `mac_control`, `mac_vision`, `exec`
+- `github` -> `github`, `read_file`, `write_file`, `edit_file`
+- `cron` -> `cron`, `task`, `exec`
+- `system-health-check` -> `exec`, `read_file`, `list_dir`
+- `project-audit` -> `exec`, `read_file`, `write_file`
+- `html-cleanup` -> `read_file`, `write_file`, `edit_file`
+- `clawhub` -> `skills`, `exec`
+
 ## 常用组合
 1. 调研闭环：按 ToolPolicy 选用联网工具；必要时结合 `read_file/edit_file` 形成结果闭环
 2. 屏幕任务：`mac_control -> mac_vision -> 压缩图 -> 原图`

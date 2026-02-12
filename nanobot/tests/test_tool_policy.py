@@ -86,6 +86,16 @@ def test_tool_policy_domain_route_github_prefers_github_tool():
     assert _names(out) == ["github"]
 
 
+def test_tool_policy_domain_route_email_prefers_mail_tool():
+    policy = ToolPolicy()
+    out = policy.filter_tools(
+        messages=[{"role": "user", "content": "帮我看一下邮箱未读邮件"}],
+        tool_definitions=_defs("mail", "gmail", "qq_mail", "tavily", "browser"),
+        failed_tools=set(),
+    )
+    assert _names(out) == ["mail", "gmail", "qq_mail"]
+
+
 def test_tool_policy_new_domain_via_config_maps_to_dedicated_tool():
     policy = ToolPolicy(
         intent_rules=[{"capability": "flight_ticket", "keywords": ["机票", "航班"]}],

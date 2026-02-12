@@ -15,6 +15,7 @@ from nanobot.agent.tools.gmail import GmailTool
 from nanobot.agent.tools.knowledge import KnowledgeTool
 from nanobot.agent.tools.mac import MacTool
 from nanobot.agent.tools.mac_vision import MacVisionTool
+from nanobot.agent.tools.mail import MailTool
 from nanobot.agent.tools.mcp import MCPTool
 from nanobot.agent.tools.memory import MemoryTool
 from nanobot.agent.tools.message import MessageTool
@@ -109,6 +110,8 @@ class ToolBootstrapper:
             self.tools.register(GmailTool())
         if self._tool_enabled("qq_mail"):
             self.tools.register(QQMailTool())
+        if self._tool_enabled("mail"):
+            self.tools.register(MailTool(self.tools))
 
         if self._tool_enabled("mac_control"):
             self.tools.register(MacTool(confirm_mode=self.mac_confirm_mode))
