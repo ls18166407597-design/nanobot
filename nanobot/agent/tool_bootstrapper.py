@@ -123,7 +123,11 @@ class ToolBootstrapper:
             self.tools.register(MemoryTool(workspace=self.workspace))
         if self._tool_enabled("provider"):
             self.tools.register(ProviderTool(registry=self.model_registry))
-        if self._tool_enabled("mcp") and self._mcp_has_enabled_servers():
+        if (
+            bool(getattr(self.tools_config.mcp, "expose_direct", False))
+            and self._tool_enabled("mcp")
+            and self._mcp_has_enabled_servers()
+        ):
             self.tools.register(
                 MCPTool(
                     startup_timeout=getattr(self.tools_config.mcp, "startup_timeout", 8),

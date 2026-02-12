@@ -15,15 +15,20 @@ class _ToolsStub:
         return self.items.get(name)
 
 
-def _make_tools_config():
+def _make_tools_config(*, expose_direct: bool = False):
     return SimpleNamespace(
         enabled_tools=["mcp"],
         disabled_tools=[],
-        mcp=SimpleNamespace(startup_timeout=8, request_timeout=20, max_output_chars=12000),
+        mcp=SimpleNamespace(
+            expose_direct=expose_direct,
+            startup_timeout=8,
+            request_timeout=20,
+            max_output_chars=12000,
+        ),
     )
 
 
-def _build_bootstrapper(tools, workspace: Path):
+def _build_bootstrapper(tools, workspace: Path, *, expose_direct: bool = False):
     return ToolBootstrapper(
         tools=tools,
         workspace=workspace,
@@ -35,7 +40,7 @@ def _build_bootstrapper(tools, workspace: Path):
         bus_publish_outbound=None,
         cron_service=None,
         model_registry=None,
-        tools_config=_make_tools_config(),
+        tools_config=_make_tools_config(expose_direct=expose_direct),
         mac_confirm_mode="warn",
     )
 
@@ -58,6 +63,6 @@ def test_mcp_tool_registered_when_enabled_server_exists(tmp_path, monkeypatch):
     )
     monkeypatch.setenv("NANOBOT_HOME", str(home))
     tools = _ToolsStub()
-    bootstrapper = _build_bootstrapper(tools, workspace=tmp_path)
+    bootstrapper = _build_bootstrapper(tools, workspace=tmp_path, expose_direct=True)
     bootstrapper.register_default_tools()
     assert "mcp" in tools.items

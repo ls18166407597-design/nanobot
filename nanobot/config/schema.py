@@ -133,6 +133,7 @@ class MacToolsConfig(BaseModel):
 class MCPToolsConfig(BaseModel):
     """MCP tool runtime defaults."""
 
+    expose_direct: bool = False  # Do not expose generic mcp tool to model by default
     startup_timeout: int = 8
     request_timeout: int = 20
     max_output_chars: int = 12000
@@ -142,8 +143,6 @@ class ToolPolicyConfig(BaseModel):
     """Tool routing policy configuration."""
 
     web_default: str = "tavily"  # tavily | duckduckgo | browser
-    enable_mcp_fallback: bool = False
-    allow_explicit_mcp: bool = False
     intent_rules: list[dict[str, Any]] = Field(
         default_factory=lambda: [
             {"capability": "code_hosting", "keywords": ["github", "issue", "pr", "repo", "commit"]},

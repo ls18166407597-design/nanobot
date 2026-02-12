@@ -107,8 +107,6 @@ class AgentLoop:
             hook_registry=self.hook_registry,
             tool_policy=ToolPolicy(
                 web_default=getattr(self.tools_config.policy, "web_default", "tavily"),
-                enable_mcp_fallback=bool(getattr(self.tools_config.policy, "enable_mcp_fallback", False)),
-                allow_explicit_mcp=bool(getattr(self.tools_config.policy, "allow_explicit_mcp", False)),
                 intent_rules=list(getattr(self.tools_config.policy, "intent_rules", []) or []),
                 tool_capabilities=dict(getattr(self.tools_config.policy, "tool_capabilities", {}) or {}),
             ),

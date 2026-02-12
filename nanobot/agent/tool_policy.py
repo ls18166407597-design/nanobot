@@ -8,21 +8,17 @@ from typing import Any
 class ToolPolicy:
     """Decide which tools should be exposed to the model in current iteration."""
 
-    WEB_TOOLS = {"tavily", "duckduckgo", "browser", "mcp"}
+    WEB_TOOLS = {"tavily", "duckduckgo", "browser"}
     VALID_WEB_DEFAULT = {"tavily", "duckduckgo", "browser"}
 
     def __init__(
         self,
         *,
         web_default: str = "tavily",
-        enable_mcp_fallback: bool = False,
-        allow_explicit_mcp: bool = False,
         intent_rules: list[dict[str, Any]] | None = None,
         tool_capabilities: dict[str, list[str]] | None = None,
     ):
         self.web_default = web_default if web_default in self.VALID_WEB_DEFAULT else "tavily"
-        self.enable_mcp_fallback = bool(enable_mcp_fallback)
-        self.allow_explicit_mcp = bool(allow_explicit_mcp)
         self.intent_rules = intent_rules or [
             {"capability": "code_hosting", "keywords": ["github", "issue", "pr", "repo", "commit"]},
             {"capability": "train_ticket", "keywords": ["火车票", "12306", "车次", "余票", "高铁", "动车"]},
@@ -101,22 +97,11 @@ class ToolPolicy:
                     allow_web.add(candidate)
                     break
 
-        both_core_failed = (
-            ("tavily" in failed_tools or "tavily" not in web_present)
-            and ("duckduckgo" in failed_tools or "duckduckgo" not in web_present)
-            and ("browser" in failed_tools or "browser" not in web_present)
-        )
-        can_use_mcp = self.enable_mcp_fallback and both_core_failed
-        if can_use_mcp and "mcp" in web_present:
-            allow_web.add("mcp")
-
         if not allow_web:
             for n in ("tavily", "duckduckgo", "browser"):
                 if n in web_present:
                     allow_web.add(n)
                     break
-            if "mcp" in web_present and can_use_mcp:
-                allow_web.add("mcp")
 
         filtered: list[dict[str, Any]] = []
         for td in tool_definitions:
