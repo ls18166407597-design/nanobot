@@ -74,6 +74,8 @@ class ToolBootstrapper:
                 ExecTool(
                     working_dir=str(self.workspace),
                     timeout=self.exec_config.timeout,
+                    exec_mode=getattr(self.exec_config, "mode", "host"),
+                    sandbox_engine=getattr(self.exec_config, "sandbox_engine", "auto"),
                     restrict_to_workspace=self.restrict_to_workspace,
                     provider=self.provider,
                     brain_config=self.brain_config,

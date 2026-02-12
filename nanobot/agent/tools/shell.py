@@ -3,6 +3,7 @@
 import asyncio
 import os
 import re
+import shutil
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
 if TYPE_CHECKING:
@@ -20,6 +21,8 @@ class ExecTool(Tool):
         self,
         timeout: int = 60,
         working_dir: str | None = None,
+        exec_mode: str = "host",
+        sandbox_engine: str = "auto",
         deny_patterns: list[str] | None = None,
         allow_patterns: list[str] | None = None,
         restrict_to_workspace: bool = False,
@@ -28,6 +31,8 @@ class ExecTool(Tool):
     ):
         self.timeout = timeout
         self.working_dir = working_dir
+        self.exec_mode = (exec_mode or "host").lower()
+        self.sandbox_engine = (sandbox_engine or "auto").lower()
         self.deny_patterns = deny_patterns or [
             r"\brm\s+-[rf]{1,2}\b",  # rm -r, rm -rf, rm -fr
             r"\bdel\s+/[fq]\b",  # del /f, del /q
@@ -42,6 +47,15 @@ class ExecTool(Tool):
         self.restrict_to_workspace = restrict_to_workspace
         self.provider = provider
         self.brain_config = brain_config
+        self._high_risk_patterns = [
+            r"\bsudo\b",
+            r"\brm\s+-[rf]{1,2}\b",
+            r"\bmv\b.+\s+/(etc|usr|var|bin|sbin)\b",
+            r"\b(chmod|chown)\b",
+            r"\b(killall|pkill)\b",
+            r">\s*/(etc|usr|var|bin|sbin)/",
+            r"\b(apt|yum|dnf|brew)\s+(install|upgrade|remove)\b",
+        ]
 
     @property
     def name(self) -> str:
@@ -100,51 +114,14 @@ class ExecTool(Tool):
                     )
 
         try:
-            # Inject current python environment into PATH
-            env = os.environ.copy()
-            import sys
-            python_bin = os.path.dirname(sys.executable)
-            if python_bin not in env.get("PATH", ""):
-                env["PATH"] = f"{python_bin}:{env.get('PATH', '')}"
+            run_mode, sandbox_note = self._resolve_run_mode(command)
+            if run_mode == "sandbox":
+                code, output = await self._run_sandbox(command, cwd)
+            else:
+                code, output = await self._run_host(command, cwd)
 
-            process = await asyncio.create_subprocess_shell(
-                command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=cwd,
-                env=env,
-            )
-
-            try:
-                stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=self.timeout)
-            except asyncio.TimeoutError:
-                process.kill()
-                return ToolResult(
-                    success=False,
-                    output=f"Error: Command timed out after {self.timeout} seconds",
-                    remedy="如果该命令需要更多时间，请尝试分步执行或联系管理员调整超时限制。",
-                    severity=ToolSeverity.ERROR,
-                    should_retry=True
-                )
-            except asyncio.CancelledError:
-                # CRITICAL: If the AI task is cancelled, we MUST kill the OS process
-                process.kill()
-                raise
-
-            output_parts = []
-
-            if stdout:
-                output_parts.append(stdout.decode("utf-8", errors="replace"))
-
-            if stderr:
-                stderr_text = stderr.decode("utf-8", errors="replace")
-                if stderr_text.strip():
-                    output_parts.append(f"STDERR:\n{stderr_text}")
-
-            if process.returncode != 0:
-                output_parts.append(f"\nExit code: {process.returncode}")
-
-            output = "\n".join(output_parts) if output_parts else "(no output)"
+            if sandbox_note:
+                output = f"{sandbox_note}\n{output}"
             if llm_warning:
                 output = f"{llm_warning}\n{output}"
             
@@ -158,10 +135,10 @@ class ExecTool(Tool):
                 output = output[:max_len] + f"\n... (truncated, {len(output) - max_len} more chars)"
 
             return ToolResult(
-                success=process.returncode == 0,
+                success=code == 0,
                 output=output,
-                remedy="请检查指令语法、路径权限或环境依赖。" if process.returncode != 0 else None,
-                severity=ToolSeverity.INFO if process.returncode == 0 else ToolSeverity.ERROR
+                remedy="请检查指令语法、路径权限或环境依赖。" if code != 0 else None,
+                severity=ToolSeverity.INFO if code == 0 else ToolSeverity.ERROR,
             )
 
         except Exception as e:
@@ -170,6 +147,138 @@ class ExecTool(Tool):
                 output=f"Error executing command: {str(e)}",
                 severity=ToolSeverity.ERROR
             )
+
+    async def _run_host(self, command: str, cwd: str) -> tuple[int, str]:
+        env = os.environ.copy()
+        import sys
+
+        python_bin = os.path.dirname(sys.executable)
+        if python_bin not in env.get("PATH", ""):
+            env["PATH"] = f"{python_bin}:{env.get('PATH', '')}"
+
+        process = await asyncio.create_subprocess_shell(
+            command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=cwd,
+            env=env,
+        )
+        return await self._collect_process_output(process)
+
+    async def _run_sandbox(self, command: str, cwd: str) -> tuple[int, str]:
+        engine = self._detect_sandbox_engine()
+        if not engine:
+            return (
+                1,
+                "Error: Sandbox engine is unavailable on this host.\n"
+                "建议：安装 bubblewrap(bwrap) 或 Docker，或将 tools.exec.mode 临时切换为 host。",
+            )
+
+        if engine == "bwrap":
+            # Linux bubblewrap sandbox: read-only system, writable mounted workspace.
+            argv = [
+                "bwrap",
+                "--unshare-all",
+                "--new-session",
+                "--die-with-parent",
+                "--ro-bind",
+                "/",
+                "/",
+                "--bind",
+                cwd,
+                cwd,
+                "--chdir",
+                cwd,
+                "--proc",
+                "/proc",
+                "--dev",
+                "/dev",
+                "sh",
+                "-lc",
+                command,
+            ]
+        else:
+            # Docker sandbox: no network, limited resources, workspace-only mount.
+            argv = [
+                "docker",
+                "run",
+                "--rm",
+                "--network=none",
+                "--cpus=1",
+                "--memory=512m",
+                "--pids-limit=128",
+                "-v",
+                f"{cwd}:{cwd}",
+                "-w",
+                cwd,
+                "alpine:3.20",
+                "sh",
+                "-lc",
+                command,
+            ]
+
+        process = await asyncio.create_subprocess_exec(
+            *argv,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=cwd,
+        )
+        code, output = await self._collect_process_output(process)
+        return code, f"[Sandbox:{engine}]\n{output}"
+
+    async def _collect_process_output(self, process: asyncio.subprocess.Process) -> tuple[int, str]:
+        try:
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=self.timeout)
+        except asyncio.TimeoutError:
+            process.kill()
+            return (1, f"Error: Command timed out after {self.timeout} seconds")
+        except asyncio.CancelledError:
+            process.kill()
+            raise
+
+        output_parts = []
+        if stdout:
+            output_parts.append(stdout.decode("utf-8", errors="replace"))
+        if stderr:
+            stderr_text = stderr.decode("utf-8", errors="replace")
+            if stderr_text.strip():
+                output_parts.append(f"STDERR:\n{stderr_text}")
+        if process.returncode != 0:
+            output_parts.append(f"\nExit code: {process.returncode}")
+
+        output = "\n".join(output_parts) if output_parts else "(no output)"
+        return process.returncode, output
+
+    def _resolve_run_mode(self, command: str) -> tuple[str, str | None]:
+        if self.exec_mode == "sandbox":
+            return "sandbox", None
+        if self.exec_mode == "host":
+            return "host", None
+
+        if self.exec_mode != "hybrid":
+            return "host", f"[Note] Unknown exec mode '{self.exec_mode}', fallback to host."
+
+        if self._is_high_risk(command):
+            if self._detect_sandbox_engine():
+                return "sandbox", "检测到高风险命令，已自动切换到沙箱执行。"
+            return "host", "检测到高风险命令，但沙箱不可用，已回退到宿主执行（请谨慎）。"
+        return "host", None
+
+    def _is_high_risk(self, command: str) -> bool:
+        lower = command.lower()
+        return any(re.search(p, lower) for p in self._high_risk_patterns)
+
+    def _detect_sandbox_engine(self) -> str | None:
+        if self.sandbox_engine == "bwrap":
+            return "bwrap" if shutil.which("bwrap") else None
+        if self.sandbox_engine == "docker":
+            return "docker" if shutil.which("docker") else None
+
+        if shutil.which("bwrap"):
+            return "bwrap"
+        if shutil.which("docker"):
+            return "docker"
+        return None
 
     def _static_guard(self, command: str, cwd: str) -> str | None:
         """Best-effort safety guard for potentially destructive commands."""

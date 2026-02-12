@@ -118,6 +118,8 @@ class ExecToolConfig(BaseModel):
     """Shell exec tool configuration."""
 
     timeout: int = 60
+    mode: str = "host"  # host | sandbox | hybrid
+    sandbox_engine: str = "auto"  # auto | bwrap | docker
 
 
 class MacToolsConfig(BaseModel):
