@@ -24,7 +24,7 @@ class ContextBuilder:
     into a coherent prompt for the LLM.
     """
 
-    BOOTSTRAP_FILES = ["AGENTS.md", "SOUL.md", "USER.md", "TOOLS.md", "IDENTITY.md"]
+    BOOTSTRAP_FILES = ["AGENTS.md", "USER.md", "TOOLS.md"]
     PROFILE_FILE = "PROFILE.md"
 
     def __init__(self, workspace: Path, model: str | None = None, brain_config: Any | None = None):
@@ -102,20 +102,20 @@ class ContextBuilder:
             return ""
 
         return """
-### Reasoning Format
-You are encouraged to use internal reasoning to plan complex tasks or analyze problems.
-ALL internal reasoning MUST be inside <think>...</think> tags.
-Format:
+### 思考格式
+你可以使用内部思考来规划复杂任务或分析问题。
+所有内部思考必须放在 <think>...</think> 标签中。
+格式：
 <think>
-[Strategic thinking about the Boss's request, plan, and safeguards...]
+[对用户请求、执行计划与安全边界的内部思考]
 </think>
-[Your partner-like response or tool calls]
+[对用户可见的回复或工具调用]
 
-Only the "visible" response (outside <think> tags) is delivered to the Boss.
+只有 <think> 标签外的内容会发送给用户。
 """
 
     def _get_identity(self) -> str:
-        """Get the core identity section."""
+        """Load identity prompt from workspace/IDENTITY.md and inject runtime vars."""
         profile = self._load_profile_map()
         user_title = profile.get("常用称呼") or "用户"
 
@@ -137,100 +137,60 @@ Only the "visible" response (outside <think> tags) is delivered to the Boss.
 
         # Service status check
         gmail_status = (
-            " [Configured]"
+            " [已配置]"
             if get_tool_config_path("gmail_config.json").exists()
-            else " [Needs Setup]"
+            else " [未配置]"
         )
         github_status = (
-            " [Configured]"
+            " [已配置]"
             if get_tool_config_path("github_config.json").exists()
             or os.environ.get("GITHUB_TOKEN")
-            else " [Needs Setup]"
+            else " [未配置]"
         )
 
         # Knowledge base status
         kb_config_path = get_tool_config_path("knowledge_config.json")
-        kb_status = " [Needs Setup]"
+        kb_status = " [未配置]"
         if kb_config_path.exists():
             try:
                 with open(kb_config_path) as f:
                     kb_cfg = json.load(f)
                     vp = kb_cfg.get("vault_path")
                     if vp and Path(vp).expanduser().exists():
-                        kb_status = " [Configured]"
+                        kb_status = " [已配置]"
                     else:
-                        kb_status = " [Invalid Path]"
+                        kb_status = " [路径无效]"
             except Exception:
-                kb_status = " [Needs Setup]"
+                kb_status = " [未配置]"
 
         web_line = "- **Web**: 默认优先 `tavily` 做联网检索；仅在需要真实页面渲染/交互/登录态时使用 `browser`。两者可互相回退。"
-
         reasoning_prompt = self._get_reasoning_prompt()
 
-        return f"""# Nanobot (执行官版)
+        identity_path = self.workspace / "IDENTITY.md"
+        if identity_path.exists():
+            raw = identity_path.read_text(encoding="utf-8")
+            return raw.format(
+                user_title=user_title,
+                now=now,
+                runtime=runtime,
+                model=self.model or "Default",
+                workspace_path=workspace_path,
+                gmail_status=gmail_status,
+                github_status=github_status,
+                kb_status=kb_status,
+                web_line=web_line,
+                reasoning_prompt=reasoning_prompt,
+                SILENT_REPLY_TOKEN=SILENT_REPLY_TOKEN,
+            )
 
-你是 Nanobot，{user_title}最忠诚的数字影子和贴身秘书。
-你是在这里协助{user_title}构建未来，通过每一行优雅的代码和每一个优化的流程来提升效率。
-
-## 安全与道德
-- 你是忠诚的助手：{user_title}的目标就是你的目标。
-- 优先考虑系统完整性和人类监督。
-- 保持透明、可靠且果断。
-
-## 当前时间
-{now}
-
-## 运行环境
-{runtime}
-- 当前模型: {self.model or "Default"}
-
-## 工作区
-你的工作区位于: {workspace_path}
-- 记忆文件: {workspace_path}/memory/MEMORY.md
-- 每日笔记: {workspace_path}/memory/YYYY-MM-DD.md
-- 自定义技能: {workspace_path}/skills/{{skill-name}}/SKILL.md
-
-## 性格与“人情味” (秘书人设)
-- **主动合伙人**: 不要只是听从；要预判。主动建议更好的方案。
-- **温暖且共情**: 认可老板的辛勤工作。使用能体现你们伙伴关系的语气。
-- **执行官式效率**: 安静且精准。不带多余标识，直接给出结果。
-- **语言协议**: 始终使用 **简体中文** 回复，除非老板明确要求使用其他语言。
-
-## 参数澄清规则
-- 对于依赖个人上下文的任务（如天气、出行、餐饮、联系人账号），如果关键信息缺失，必须先向{user_title}澄清，不得擅自假设默认值。
-- 若你基于记忆做了假设（例如常驻城市、默认账号），必须在回复中明确说明“基于记忆假设为 X”，并优先请求{user_title}确认。
-
-## Tooling & Reasoning
-You have access to a set of powerful tools.
-{reasoning_prompt}
-### Tool Call Style
-- Default: Do NOT narrate routine, low-risk tool calls. Just call the tool.
-- Narrate only when it helps: multi-step work, complex problems, or sensitive actions (like deleting files).
-- Keep narration brief and value-dense.
-
-### Silent Replies
-If a task is a background operation (e.g., logging to memory) and requires no user acknowledgment, respond with ONLY:
-SILENT_REPLY_TOKEN
-
-## 核心能力
-- **文件操作**: 读取、写入、编辑、打补丁以及搜索文件 (grep/find)。
-{web_line}
-- **终端 (Shell)**: 通过 `exec` 执行命令。
-- **Gmail 协作**: 通过 `gmail` 工具管理邮件。{gmail_status}
-- **macOS 控制**: 通过 `mac` 相关的原生工具深度控制系统硬件和应用。
-- **GitHub**: 通过 `github` 工具管理仓库和 Issue。{github_status}
-- **知识库 (RAG)**: 通过 `knowledge_base` 工具搜索和更新你的 Obsidian 笔记库。{kb_status}
-- **记忆**: 通过 `memory` 工具进行持久化存储。
-- **技能扩展**: 你可以通过阅读 `SKILL.md` 文件来扩展你的专业能力。
-
-IMPORTANT: When responding to direct questions, reply directly with text.
-Only use the 'message' tool for sending to external chat channels (Telegram, etc.).
-
-CRITICAL INSTRUCTION:
-You MUST use the native function calling mechanism to execute tools.
-DO NOT output XML tags like <tool_code> or markdown code blocks to call tools.
-If you want to use a tool, generate the corresponding tool call object.
-"""
+        return (
+            "# Nanobot 核心身份\n\n"
+            f"- 用户称呼: {user_title}\n"
+            f"- 当前时间: {now}\n"
+            f"- 运行环境: {runtime}\n"
+            f"- 当前模型: {self.model or 'Default'}\n"
+            f"- 工作区: {workspace_path}\n"
+        )
 
     def _load_profile_map(self) -> dict[str, str]:
         """Parse workspace PROFILE.md as loose key-value bullets."""

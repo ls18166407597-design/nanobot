@@ -357,7 +357,7 @@ class AgentLoop:
             # Keep only the last 10 messages and the new summary
             recent = session.messages[-10:]
             session.messages = [
-                {"role": "system", "content": f"This is a summary of the earlier conversation: {summary}"}
+                {"role": "system", "content": f"以下是更早对话的摘要：{summary}"}
             ] + recent
             self.sessions.save(session)
 
@@ -377,16 +377,16 @@ class AgentLoop:
                 content = json.dumps(content)
             conversation_text += f"{role}: {str(content)[:1000]}\n" # Cap each msg for summary prompt
 
-        prompt = f"""Summarize the following conversation history into a concise paragraph.
-Focus on key facts, user preferences, and important context that should be remembered.
-Ignore transient interactions or technical tool output details.
+        prompt = f"""请将以下对话历史总结为一段简洁文字。
+重点保留：关键事实、用户偏好、后续仍需记住的重要上下文。
+忽略：短暂的来回确认、工具底层技术细节、无持续价值的噪音信息。
 
-Conversation History:
+对话历史：
 {conversation_text}
 """
         try:
             summary_msgs = [
-                {"role": "system", "content": "You are a helpful assistant that summarizes conversations."},
+                {"role": "system", "content": "你是一个负责对话摘要的助手。请仅输出摘要正文。"},
                 {"role": "user", "content": prompt}
             ]
             response = await self._chat_with_failover(messages=summary_msgs, tools=[])

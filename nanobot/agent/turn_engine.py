@@ -270,7 +270,11 @@ class TurnEngine:
             return None
         if self._user_allows_inference(user_text):
             return None
+        if not self._is_context_sensitive_request(user_text):
+            return None
 
+        # Keep this guard focused on high-risk context fields.
+        # Operational fields (chat_id/account/recipient) are handled by the tool itself.
         sensitive_labels = {
             "location": "地点",
             "city": "城市",
@@ -278,10 +282,6 @@ class TurnEngine:
             "province": "省份",
             "country": "国家",
             "timezone": "时区",
-            "account": "账号",
-            "contact": "联系人",
-            "recipient": "接收人",
-            "chat_id": "会话对象",
         }
 
         for tc in tool_calls:
@@ -308,6 +308,24 @@ class TurnEngine:
     def _user_allows_inference(self, user_text: str) -> bool:
         hints = ("默认", "按上次", "沿用", "你决定", "随便", "任意")
         return any(h in user_text for h in hints)
+
+    def _is_context_sensitive_request(self, user_text: str) -> bool:
+        keywords = (
+            "天气",
+            "温度",
+            "降雨",
+            "空气质量",
+            "穿衣",
+            "出行",
+            "路线",
+            "导航",
+            "附近",
+            "餐厅",
+            "酒店",
+            "机票",
+            "火车",
+        )
+        return any(k in user_text for k in keywords)
 
     def _value_mentioned(self, user_text: str, candidate: str) -> bool:
         if candidate in user_text:
