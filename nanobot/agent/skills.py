@@ -6,9 +6,6 @@ import re
 import shutil
 from pathlib import Path
 
-# System skills directory (single source of truth)
-SYSTEM_SKILLS_DIR = Path(__file__).parent.parent / "skills"
-
 
 class SkillsLoader:
     """
@@ -21,13 +18,9 @@ class SkillsLoader:
     def __init__(
         self,
         workspace: Path,
-        core_skills_dir: Path | None = None,
     ):
         self.workspace = workspace
         self.workspace_skills = workspace / "skills"
-        self.core_skills = core_skills_dir or SYSTEM_SKILLS_DIR
-        # Backward-compatible alias used by SkillsTool install path.
-        self.library_skills = self.core_skills
 
     def list_skills(self, filter_unavailable: bool = True) -> list[dict[str, str]]:
         """
@@ -41,7 +34,7 @@ class SkillsLoader:
         """
         skills = []
 
-        # Workspace skills (highest priority)
+        # Single source: workspace skills only
         if self.workspace_skills.exists():
             for skill_dir in self.workspace_skills.iterdir():
                 if skill_dir.is_dir():
@@ -49,16 +42,6 @@ class SkillsLoader:
                     if skill_file.exists():
                         skills.append(
                             {"name": skill_dir.name, "path": str(skill_file), "source": "workspace"}
-                        )
-
-        # Canonical core skills
-        if self.core_skills and self.core_skills.exists():
-            for skill_dir in self.core_skills.iterdir():
-                if skill_dir.is_dir():
-                    skill_file = skill_dir / "SKILL.md"
-                    if skill_file.exists() and not any(s["name"] == skill_dir.name for s in skills):
-                        skills.append(
-                            {"name": skill_dir.name, "path": str(skill_file), "source": "core"}
                         )
 
         # Filter by requirements
@@ -76,19 +59,13 @@ class SkillsLoader:
         Returns:
             Skill content or None if not found.
         """
-        # Check workspace first
-        workspace_skill = self.workspace_skills / name / "SKILL.md"
-        if workspace_skill.exists():
-            return workspace_skill.read_text(encoding="utf-8")
-
         # Compatibility: old names may include `lib:` prefix.
         normalized = name[4:] if name.startswith("lib:") else name
 
-        # Check canonical core
-        if self.core_skills:
-            core_skill = self.core_skills / normalized / "SKILL.md"
-            if core_skill.exists():
-                return core_skill.read_text(encoding="utf-8")
+        # Workspace single source
+        workspace_skill = self.workspace_skills / normalized / "SKILL.md"
+        if workspace_skill.exists():
+            return workspace_skill.read_text(encoding="utf-8")
 
         return None
 

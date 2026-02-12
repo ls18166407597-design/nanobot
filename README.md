@@ -166,8 +166,8 @@ cd /Users/liusong/Downloads/nanobot
 
 ```
 nanobot/
-├── nanobot/         # ⚙️ [内核] 不可变引擎源码与基础技能
-├── workspace/       # 🧠 [大脑] 你的个性化 Prompt、Skill、脚本与记忆
+├── nanobot/         # ⚙️ [内核] 不可变引擎源码
+├── workspace/       # 🧠 [大脑] 你的个性化 Prompt、Skill、脚本与记忆（技能单一来源）
 ├── .home/           # 📄 [运行] 临时日志与持久化配置存储
 └── docs/            # 📖 [文档] 所有的指南与路线图 (汉化)
 ```

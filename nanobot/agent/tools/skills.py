@@ -15,7 +15,7 @@ class SkillsTool(Tool):
     管理技能：列出已安装技能、联网检索技能广场、按 URL 安装技能。
     
     动作:
-    - list_installed: 列出当前已安装技能（系统层 + 工作区层）。
+    - list_installed: 列出当前已安装技能（workspace/skills）。
     - browse_online: 联网搜索技能广场（优先 clawhub.com）。
     - install_url: 从 SKILL.md URL 安装到工作区。
     """
@@ -109,26 +109,12 @@ class SkillsTool(Tool):
 
     def _list_installed(self) -> str:
         skills = self.loader.list_skills(filter_unavailable=False)
-        installed = [s for s in skills if s["source"] in ["workspace", "core"]]
-        if not installed:
+        if not skills:
             return "未发现已安装技能。"
 
-        ws = [s for s in installed if s["source"] == "workspace"]
-        core = [s for s in installed if s["source"] == "core"]
         output = ["--- 已安装技能 ---"]
-        output.append("系统层：")
-        if core:
-            for s in core:
-                desc = self.loader._get_skill_description(s["name"])
-                output.append(f"- {s['name']}: {desc}")
-        else:
-            output.append("- (空)")
-
-        output.append("工作区层：")
-        if ws:
-            for s in ws:
-                desc = self.loader._get_skill_description(s["name"])
-                output.append(f"- {s['name']}: {desc}")
-        else:
-            output.append("- (空)")
+        output.append("目录：workspace/skills")
+        for s in skills:
+            desc = self.loader._get_skill_description(s["name"])
+            output.append(f"- {s['name']}: {desc}")
         return "\n".join(output)

@@ -13,8 +13,8 @@
 
 We have refactored the project into a "Triad" isolated architecture for long-term stability:
 
-- **`nanobot/`** (Engine): Immutable core source code and base skills.
-- **`workspace/`** (Brain): Your personalized prompts, skills, scripts, and memory.
+- **`nanobot/`** (Engine): Immutable core source code.
+- **`workspace/`** (Brain): Your personalized prompts, skills, scripts, and memory (single source for skills).
 - **`.home/`** (Runtime): Persistent configurations and logs.
 
 ## 🌟 Key Features
