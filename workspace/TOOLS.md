@@ -9,6 +9,7 @@
 
 ## 联网工具分工
 - `train_ticket`：火车票查询能力（优先使用）。
+- `amap`：高德地图能力（地理编码、逆地理、路线、距离、周边等）。
 - `tavily`：API 检索能力。
 - `duckduckgo`：通用网页检索能力（后端封装，作为信息检索第二优先级）。
 - `browser`：页面渲染/交互能力。
@@ -49,5 +50,6 @@
 - `tushare` -> `tushare_config.json`
 - `feishu` -> `feishu_config.json`
 - `train_ticket` -> `mcp_config.json`（读取 `servers.12306`）
+- `amap` -> `mcp_config.json`（读取 `servers.amap`）
 - `duckduckgo` -> `mcp_config.json`（读取 `servers.duckduckgo`）
 - `github` -> `mcp_config.json`（读取 `servers.github`）

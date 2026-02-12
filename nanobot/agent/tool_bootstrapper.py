@@ -6,6 +6,7 @@ from typing import Any
 
 from nanobot.agent.task_manager import TaskManager
 from nanobot.agent.tools.browser import BrowserTool
+from nanobot.agent.tools.amap import AmapTool
 from nanobot.agent.tools.cron import CronTool
 from nanobot.agent.tools.duckduckgo import DuckDuckGoTool
 from nanobot.agent.tools.feishu import FeishuTool
@@ -152,6 +153,8 @@ class ToolBootstrapper:
             self.tools.register(FeishuTool())
         if self._tool_enabled("train_ticket"):
             self.tools.register(TrainTicketTool())
+        if self._tool_enabled("amap"):
+            self.tools.register(AmapTool())
 
         if self._tool_enabled("skills"):
             self.tools.register(

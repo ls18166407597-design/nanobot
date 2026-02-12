@@ -147,6 +147,7 @@ class ToolPolicyConfig(BaseModel):
         default_factory=lambda: [
             {"capability": "code_hosting", "keywords": ["github", "issue", "pr", "repo", "commit"]},
             {"capability": "train_ticket", "keywords": ["火车票", "12306", "车次", "余票", "高铁", "动车"]},
+            {"capability": "map", "keywords": ["地图", "路线", "导航", "驾车", "步行", "公交", "地铁", "距离", "经纬度", "周边"]},
             {"capability": "weather", "keywords": ["天气", "气温", "降雨", "湿度", "风力", "空气质量", "aqi"]},
             {"capability": "email", "keywords": ["邮件", "邮箱", "收件箱", "发邮件", "gmail", "qq邮箱"]},
         ]
@@ -155,6 +156,7 @@ class ToolPolicyConfig(BaseModel):
         default_factory=lambda: {
             "github": ["code_hosting", "issue_tracking"],
             "train_ticket": ["train_ticket"],
+            "amap": ["map"],
             "mail": ["email"],
             "weather": ["weather"],
             "gmail": ["email"],
