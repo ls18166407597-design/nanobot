@@ -18,6 +18,7 @@
 2. 专用工具优先（如 `train_ticket`、`github`、`weather`、`mail`），通用联网工具作为兜底。
 3. 涉及联网时在结果首行标注：`查询来源: ...`。
 4. 来源标注优先写业务来源，不强调后端实现细节（例如写 `12306`、`GitHub`，而非 `MCP`）。
+5. 凡是写入 `task/cron` 的命令，必须是可独立运行的一条命令（优先 `workspace/skills/*/scripts/*.py` 或 `workspace/scripts/*.py`），不得依赖 `nanobot/agent/tools` 等内部导入路径。
 
 ## 屏幕识别
 1. 先 `mac_vision`。

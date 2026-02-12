@@ -1,6 +1,9 @@
 """
 Task Tool - Agent interface for task management
 """
+import os
+import shlex
+from pathlib import Path
 from typing import Any
 from loguru import logger
 
@@ -107,7 +110,8 @@ class TaskTool(Tool):
             return ToolResult(success=False, output="❌ Error: 'command' is required for create")
         
         try:
-            task = self._manager.create(name=name, description=description, command=command)
+            normalized_command = self._normalize_command(command)
+            task = self._manager.create(name=name, description=description, command=normalized_command)
             return ToolResult(success=True, output=f"✅ 已创建任务 '{task.name}'\n📝 描述: {task.description}\n💻 命令: {task.command}")
         except ValueError as e:
             return ToolResult(success=False, output=f"❌ {str(e)}")
@@ -140,6 +144,9 @@ class TaskTool(Tool):
             return ToolResult(success=False, output=f"❌ 任务 '{name}' 不存在")
         
         logger.info(f"Executing task '{name}': {task.command}")
+        preflight_error = self._preflight_command(task.command)
+        if preflight_error:
+            return ToolResult(success=False, output=f"❌ 执行前检查失败: {preflight_error}")
         
         # Execute the command using ExecTool
         try:
@@ -200,7 +207,70 @@ class TaskTool(Tool):
         if not description and not command:
             return ToolResult(success=False, output="❌ Error: at least one of 'description' or 'command' is required for update")
         
-        if self._manager.update(name, description=description, command=command):
+        normalized_command = self._normalize_command(command) if command else None
+        if self._manager.update(name, description=description, command=normalized_command):
             return ToolResult(success=True, output=f"✅ 已更新任务 '{name}'")
         else:
             return ToolResult(success=False, output=f"❌ 任务 '{name}' 不存在")
+
+    def _normalize_command(self, command: str) -> str:
+        """
+        Normalize task command to reduce environment-related failures.
+        - Remove fragile PYTHONPATH prefixes.
+        - Inject NANOBOT_HOME for python script commands when missing.
+        """
+        cmd = (command or "").strip()
+        if not cmd:
+            return cmd
+
+        # Remove common fragile pattern created during self-repair loops.
+        if "PYTHONPATH=$PYTHONPATH" in cmd:
+            parts = [p.strip() for p in cmd.split("&&") if p.strip()]
+            parts = [p for p in parts if "PYTHONPATH=$PYTHONPATH" not in p]
+            cmd = " && ".join(parts).strip() or cmd
+
+        home_dir = Path(os.getenv("NANOBOT_HOME", Path.cwd() / ".home")).expanduser()
+        home_prefix = f"NANOBOT_HOME={home_dir}"
+
+        lower = cmd.lower()
+        is_python_cmd = lower.startswith("python ") or lower.startswith("python3 ")
+        if is_python_cmd and "nanobot_home=" not in lower:
+            cmd = f"{home_prefix} {cmd}"
+        return cmd
+
+    def _preflight_command(self, command: str) -> str | None:
+        """
+        Basic sanity checks before task execution.
+        Fail fast with actionable errors for missing script files.
+        """
+        try:
+            tokens = shlex.split(command)
+        except Exception:
+            return None
+
+        if not tokens:
+            return "任务命令为空"
+
+        # Skip leading env assignments.
+        i = 0
+        while i < len(tokens) and "=" in tokens[i] and not tokens[i].startswith("-"):
+            i += 1
+        if i >= len(tokens):
+            return None
+
+        exe = tokens[i]
+        if exe not in {"python", "python3"}:
+            return None
+        if i + 1 >= len(tokens):
+            return "Python 命令缺少脚本路径"
+
+        script = tokens[i + 1]
+        if script.startswith("-"):
+            return None
+
+        p = Path(script)
+        if not p.is_absolute():
+            p = Path.cwd() / p
+        if not p.exists():
+            return f"脚本不存在: {script}"
+        return None

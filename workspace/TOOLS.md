@@ -35,6 +35,7 @@
 1. 调研闭环：按 ToolPolicy 选用联网工具；必要时结合 `read_file/edit_file` 形成结果闭环
 2. 屏幕任务：`mac_control -> mac_vision -> 压缩图 -> 原图`
 3. 消息发送：先查 `workspace/scripts/contacts/contacts.json`，再调用消息工具或分发脚本
+4. 定时任务：`task/cron` 只写可独立运行命令（优先 `workspace/skills/*/scripts/*.py` 或 `workspace/scripts/*.py`），避免依赖内部导入路径
 
 ## 配置文件目录
 - 统一目录：`.home/tool_configs/`
