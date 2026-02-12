@@ -186,6 +186,14 @@ def logs(
     runtime_commands.cmd_logs(console=console, audit=audit, lines=lines, follow=follow)
 
 
+@app.command("tools-health")
+def tools_health(
+    lines: int = typer.Option(5000, "--lines", "-n", help="Number of audit lines to analyze"),
+):
+    """Show tool health dashboard (calls/failure/timeout/empty-reply)."""
+    runtime_commands.cmd_tools_health(console=console, lines=lines)
+
+
 # ============================================================================
 # Runtime Snapshot Compatibility
 # ============================================================================

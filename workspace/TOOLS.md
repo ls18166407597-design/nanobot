@@ -3,12 +3,13 @@
 本文件只描述工具分工与配置位置，不承载人格或执行铁律。
 
 ## 联网工具分工
-- `tavily`：默认检索入口（快速、结构化）。
-- `browser`：页面渲染/交互/登录态场景。
-- `mcp`：外部扩展入口，仅在用户明确要求或前两者失败后使用。
+- `tavily`：API 检索能力。
+- `browser`：页面渲染/交互能力。
+- `mcp`：外部扩展能力。
+- 具体选择顺序由运行时 ToolPolicy 决定，本文件不重复定义策略细节。
 
 ## 常用组合
-1. 调研闭环：`tavily.search -> tavily.research -> browser.search/browse -> mcp`（按需）
+1. 调研闭环：按 ToolPolicy 选用联网工具；必要时结合 `read_file/edit_file` 形成结果闭环
 2. 屏幕任务：`mac_control -> mac_vision -> 压缩图 -> 原图`
 3. 消息发送：先查 `workspace/scripts/contacts/contacts.json`，再调用消息工具或分发脚本
 

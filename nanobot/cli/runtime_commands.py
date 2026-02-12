@@ -242,6 +242,127 @@ def collect_health_snapshot(config: Any, data_dir: Path, config_path: Path) -> d
     }
 
 
+def collect_tool_health_snapshot(data_dir: Path, lines: int = 5000) -> dict[str, Any]:
+    """Aggregate tool/turn quality metrics from audit.log."""
+    import json
+    from collections import defaultdict
+
+    audit_path = data_dir / "audit.log"
+    per_tool: dict[str, dict[str, Any]] = defaultdict(
+        lambda: {"calls": 0, "errors": 0, "timeouts": 0, "duration_total": 0.0, "duration_count": 0}
+    )
+    turns = 0
+    empty_replies = 0
+    total_calls = 0
+    total_errors = 0
+    total_timeouts = 0
+
+    if not audit_path.exists():
+        return {
+            "tools": {},
+            "summary": {
+                "total_calls": 0,
+                "failure_rate": 0.0,
+                "timeout_rate": 0.0,
+                "empty_reply_rate": 0.0,
+                "turns": 0,
+            },
+        }
+
+    entries = audit_path.read_text(encoding="utf-8", errors="ignore").splitlines()[-max(100, lines):]
+    for raw in entries:
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            event = json.loads(raw)
+        except Exception:
+            continue
+        etype = str(event.get("type", ""))
+        if etype == "tool_end":
+            tool = str(event.get("tool", "unknown") or "unknown")
+            status = str(event.get("status", "ok"))
+            duration = event.get("duration_s")
+            per_tool[tool]["calls"] += 1
+            total_calls += 1
+            if status in {"error", "timeout"}:
+                per_tool[tool]["errors"] += 1
+                total_errors += 1
+            if status == "timeout":
+                per_tool[tool]["timeouts"] += 1
+                total_timeouts += 1
+            if isinstance(duration, (int, float)):
+                per_tool[tool]["duration_total"] += float(duration)
+                per_tool[tool]["duration_count"] += 1
+        elif etype == "turn_end":
+            turns += 1
+            if not bool(event.get("has_content", False)):
+                empty_replies += 1
+
+    tools_out: dict[str, dict[str, Any]] = {}
+    for tool, s in per_tool.items():
+        calls = s["calls"]
+        tools_out[tool] = {
+            "calls": calls,
+            "failure_rate": round((s["errors"] / calls) if calls else 0.0, 4),
+            "timeout_rate": round((s["timeouts"] / calls) if calls else 0.0, 4),
+            "avg_duration_s": round((s["duration_total"] / s["duration_count"]) if s["duration_count"] else 0.0, 4),
+        }
+
+    return {
+        "tools": tools_out,
+        "summary": {
+            "total_calls": total_calls,
+            "failure_rate": round((total_errors / total_calls) if total_calls else 0.0, 4),
+            "timeout_rate": round((total_timeouts / total_calls) if total_calls else 0.0, 4),
+            "empty_reply_rate": round((empty_replies / turns) if turns else 0.0, 4),
+            "turns": turns,
+        },
+    }
+
+
+def cmd_tools_health(console, lines: int = 5000) -> None:
+    """Show tool health dashboard from audit log."""
+    from nanobot.config.loader import get_data_dir
+
+    snap = collect_tool_health_snapshot(get_data_dir(), lines=lines)
+    summary = snap["summary"]
+    tools = snap["tools"]
+
+    console.print("[bold]Tool Health Dashboard[/bold]")
+    console.print(
+        (
+            f"calls={summary['total_calls']} | "
+            f"failure_rate={summary['failure_rate']:.2%} | "
+            f"timeout_rate={summary['timeout_rate']:.2%} | "
+            f"empty_reply_rate={summary['empty_reply_rate']:.2%} | "
+            f"turns={summary['turns']}"
+        )
+    )
+
+    if not tools:
+        console.print("[yellow]No tool metrics yet. Run some tasks first.[/yellow]")
+        return
+
+    table = Table(box=None, padding=(0, 1))
+    table.add_column("Tool", style="cyan")
+    table.add_column("Calls", justify="right")
+    table.add_column("Failure", justify="right")
+    table.add_column("Timeout", justify="right")
+    table.add_column("Avg(s)", justify="right")
+
+    for tool, s in sorted(tools.items(), key=lambda kv: kv[1]["calls"], reverse=True):
+        table.add_row(
+            tool,
+            str(s["calls"]),
+            f"{s['failure_rate']:.2%}",
+            f"{s['timeout_rate']:.2%}",
+            f"{s['avg_duration_s']:.3f}",
+        )
+
+    console.print(table)
+
+
 def cmd_check(verbose: bool, quick: bool) -> None:
     """Run system health checks."""
     from nanobot.cli.doctor import check as run_checks

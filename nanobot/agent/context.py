@@ -163,10 +163,7 @@ class ContextBuilder:
             except Exception:
                 kb_status = " [未配置]"
 
-        web_line = (
-            "- **Web**: 统一按顺序决策：`tavily`（默认检索） -> `browser`（页面渲染/交互/登录态）"
-            " -> `mcp`（仅在用户明确要求或前两者失败后再用）。避免同一问题并行混用多套联网工具。"
-        )
+        web_line = "- **Web**: 联网工具选择以系统运行时 ToolPolicy 为准；同一子问题不要并行混用多套联网工具。"
         reasoning_prompt = self._get_reasoning_prompt()
 
         identity_path = self.workspace / "IDENTITY.md"

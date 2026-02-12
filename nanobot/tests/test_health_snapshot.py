@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 from nanobot.cli.commands import _collect_health_snapshot
+from nanobot.cli.runtime_commands import collect_tool_health_snapshot
 from nanobot.config.loader import get_config_path, get_data_dir, load_config, save_config
 from nanobot.config.schema import Config
 
@@ -62,3 +63,28 @@ def test_collect_health_snapshot_stale_pid(monkeypatch, tmp_path: Path):
     snap = _collect_health_snapshot(config=config, data_dir=data_dir, config_path=config_path)
     assert snap["gateway_running"] is False
     assert snap["stale_pid"] is True
+
+
+def test_collect_tool_health_snapshot(monkeypatch, tmp_path: Path):
+    data_dir, _ = _setup_tmp_home(monkeypatch, tmp_path)
+    audit_path = data_dir / "audit.log"
+    audit_path.write_text(
+        "\n".join(
+            [
+                json.dumps({"type": "tool_end", "tool": "tavily", "status": "ok", "duration_s": 0.5}),
+                json.dumps({"type": "tool_end", "tool": "tavily", "status": "timeout", "duration_s": 1.2}),
+                json.dumps({"type": "tool_end", "tool": "browser", "status": "error", "duration_s": 2.0}),
+                json.dumps({"type": "turn_end", "has_content": False}),
+                json.dumps({"type": "turn_end", "has_content": True}),
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    snap = collect_tool_health_snapshot(data_dir=data_dir, lines=100)
+    assert snap["summary"]["total_calls"] == 3
+    assert snap["summary"]["failure_rate"] == 0.6667
+    assert snap["summary"]["timeout_rate"] == 0.3333
+    assert snap["summary"]["empty_reply_rate"] == 0.5
+    assert snap["tools"]["tavily"]["calls"] == 2
+    assert snap["tools"]["tavily"]["timeout_rate"] == 0.5

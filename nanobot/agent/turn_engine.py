@@ -294,6 +294,14 @@ class TurnEngine:
                 messages=messages,
                 reason="模型未返回有效文本，触发最终总结",
             )
+        log_event(
+            {
+                "type": "turn_end",
+                "trace_id": trace_id,
+                "iterations": iteration,
+                "has_content": bool((final_content or "").strip()),
+            }
+        )
         await self._trigger_hook(
             "turn_end",
             {"trace_id": trace_id, "iterations": iteration, "has_content": bool((final_content or "").strip())},
@@ -527,12 +535,15 @@ class TurnEngine:
                 if isinstance(result, Exception):
                     result_str = f"Error executing tool {tool_call.name}: {str(result)}"
                     statuses.append((tool_call.name, False))
+                    tool_status = "error"
                 elif isinstance(result, ToolResult):
                     result_str = self._format_tool_result_output(result, include_severity=include_severity)
                     statuses.append((tool_call.name, bool(result.success)))
+                    tool_status = self._classify_tool_status(result, result_str)
                 else:
                     result_str = str(result)
                     statuses.append((tool_call.name, True))
+                    tool_status = "ok"
                 duration_s = None
                 if tool_call.id in tool_starts:
                     duration_s = round(float(time.perf_counter() - tool_starts[tool_call.id]), 4)
@@ -541,7 +552,7 @@ class TurnEngine:
                     "trace_id": trace_id,
                     "tool": tool_call.name,
                     "tool_call_id": tool_call.id,
-                    "status": "error" if isinstance(result, Exception) else "ok",
+                    "status": tool_status,
                     "duration_s": duration_s,
                     "result_len": len(result_str),
                 })
@@ -551,15 +562,43 @@ class TurnEngine:
         for tool_call in tool_calls:
             args_str = json.dumps(tool_call.arguments)
             logger.debug(f"Executing tool: {tool_call.name} with arguments: {args_str}")
+            started = time.perf_counter()
+            log_event({
+                "type": "tool_start",
+                "trace_id": trace_id,
+                "tool": tool_call.name,
+                "tool_call_id": tool_call.id,
+                "args_keys": list(tool_call.arguments.keys()),
+            })
             result = await self.executor.execute(tool_call.name, tool_call.arguments)
             if isinstance(result, ToolResult):
                 result_str = self._format_tool_result_output(result, include_severity=include_severity)
                 statuses.append((tool_call.name, bool(result.success)))
+                tool_status = self._classify_tool_status(result, result_str)
             else:
                 result_str = str(result)
                 statuses.append((tool_call.name, True))
+                tool_status = "ok"
+            duration_s = round(float(time.perf_counter() - started), 4)
+            log_event({
+                "type": "tool_end",
+                "trace_id": trace_id,
+                "tool": tool_call.name,
+                "tool_call_id": tool_call.id,
+                "status": tool_status,
+                "duration_s": duration_s,
+                "result_len": len(result_str),
+            })
             self.context.add_tool_result(messages, tool_call.id, tool_call.name, result_str)
         return statuses
+
+    def _classify_tool_status(self, result: ToolResult, result_text: str) -> str:
+        if result.success:
+            return "ok"
+        lower = (result_text or "").lower()
+        if "timed out" in lower or "timeout" in lower or "超时" in lower:
+            return "timeout"
+        return "error"
 
     async def _compact_messages_if_needed(self, messages: list[dict[str, Any]], trace_id: str | None) -> None:
         guard = ContextGuard(model=self.model)
