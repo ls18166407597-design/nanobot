@@ -96,7 +96,7 @@ class ContextBuilder:
         if self.brain_config and not getattr(self.brain_config, "reasoning", True):
             return ""
 
-        # If model name is available and it's a native reasoning model, 
+        # If model name is available and it's a native reasoning model,
         # suppress the explicit prompt as it's redundant/interfering
         if self.model and ModelAdapter.needs_reasoning_suppression(self.model):
             return ""
@@ -163,7 +163,10 @@ class ContextBuilder:
             except Exception:
                 kb_status = " [未配置]"
 
-        web_line = "- **Web**: 默认优先 `tavily` 做联网检索；仅在需要真实页面渲染/交互/登录态时使用 `browser`。两者可互相回退。"
+        web_line = (
+            "- **Web**: 统一按顺序决策：`tavily`（默认检索） -> `browser`（页面渲染/交互/登录态）"
+            " -> `mcp`（仅在用户明确要求或前两者失败后再用）。避免同一问题并行混用多套联网工具。"
+        )
         reasoning_prompt = self._get_reasoning_prompt()
 
         identity_path = self.workspace / "IDENTITY.md"
@@ -292,7 +295,7 @@ class ContextBuilder:
             role = m.get("role")
             content = m.get("content")
             ts_str = m.get("timestamp")
-            
+
             if ts_str and isinstance(content, str) and not content.startswith("["):
                 try:
                     from datetime import datetime
@@ -303,7 +306,7 @@ class ContextBuilder:
                     content = f"{time_tag} {content}"
                 except Exception:
                     pass
-            
+
             formatted_history.append({"role": role, "content": content})
 
         # System prompt

@@ -1,5 +1,6 @@
 """Default tool registration bootstrapper."""
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,7 @@ from nanobot.agent.tools.gmail import GmailTool
 from nanobot.agent.tools.knowledge import KnowledgeTool
 from nanobot.agent.tools.mac import MacTool
 from nanobot.agent.tools.mac_vision import MacVisionTool
+from nanobot.agent.tools.mcp import MCPTool
 from nanobot.agent.tools.memory import MemoryTool
 from nanobot.agent.tools.message import MessageTool
 from nanobot.agent.tools.provider import ProviderTool
@@ -24,6 +26,7 @@ from nanobot.agent.tools.tavily import TavilyTool
 from nanobot.agent.tools.tianapi import TianAPITool
 from nanobot.agent.tools.tushare import TushareTool
 from nanobot.agent.tools.weather import WeatherTool
+from nanobot.utils.helpers import get_tool_config_path
 
 
 class ToolBootstrapper:
@@ -112,6 +115,14 @@ class ToolBootstrapper:
             self.tools.register(MemoryTool(workspace=self.workspace))
         if self._tool_enabled("provider"):
             self.tools.register(ProviderTool(registry=self.model_registry))
+        if self._tool_enabled("mcp") and self._mcp_has_enabled_servers():
+            self.tools.register(
+                MCPTool(
+                    startup_timeout=getattr(self.tools_config.mcp, "startup_timeout", 8),
+                    request_timeout=getattr(self.tools_config.mcp, "request_timeout", 20),
+                    max_output_chars=getattr(self.tools_config.mcp, "max_output_chars", 12000),
+                )
+            )
         if self._tool_enabled("weather"):
             self.tools.register(WeatherTool())
         if self._tool_enabled("tavily"):
@@ -142,3 +153,21 @@ class ToolBootstrapper:
         if self.tools_config.disabled_tools:
             return name not in self.tools_config.disabled_tools
         return True
+
+    def _mcp_has_enabled_servers(self) -> bool:
+        """Register MCP tool only when at least one MCP server is enabled."""
+        path = get_tool_config_path("mcp_config.json")
+        if not path.exists():
+            return False
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+        except Exception:
+            return False
+        servers = cfg.get("servers")
+        if not isinstance(servers, dict) or not servers:
+            return False
+        for item in servers.values():
+            if isinstance(item, dict) and bool(item.get("enabled", True)):
+                return True
+        return False

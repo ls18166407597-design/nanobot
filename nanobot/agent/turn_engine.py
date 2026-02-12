@@ -15,6 +15,7 @@ from nanobot.agent.loop_guard import (
     is_hash_loop,
     is_id_loop,
 )
+from nanobot.agent.tool_policy import ToolPolicy
 from nanobot.agent.tools.base import ToolResult, ToolSeverity
 from nanobot.providers.base import ToolCallRequest
 from nanobot.utils.audit import log_event
@@ -39,6 +40,7 @@ class TurnEngine:
         max_total_tool_calls: int = 30,
         max_turn_seconds: int = 45,
         hook_registry: Any | None = None,
+        tool_policy: ToolPolicy | None = None,
     ):
         self.context = context
         self.executor = executor
@@ -53,6 +55,7 @@ class TurnEngine:
         self.max_total_tool_calls = max_total_tool_calls
         self.max_turn_seconds = max_turn_seconds
         self.hook_registry = hook_registry
+        self.tool_policy = tool_policy or ToolPolicy()
 
     async def run(
         self,
@@ -74,6 +77,7 @@ class TurnEngine:
         max_total_tool_calls = self.max_total_tool_calls
         per_tool_limits: dict[str, int] = {}
         deadline = time.monotonic() + float(self.max_turn_seconds)
+        failed_tools: set[str] = set()
 
         while iteration < self.max_iterations:
             if time.monotonic() >= deadline:
@@ -102,7 +106,11 @@ class TurnEngine:
                 response = await asyncio.wait_for(
                     self.chat_with_failover(
                         messages=messages,
-                        tools=self.get_tools_definitions(),
+                        tools=self.tool_policy.filter_tools(
+                            messages=messages,
+                            tool_definitions=self.get_tools_definitions(),
+                            failed_tools=failed_tools,
+                        ),
                     ),
                     timeout=remaining,
                 )
@@ -253,13 +261,18 @@ class TurnEngine:
                 for tc in tool_calls
             ]
             self.context.add_assistant_message(messages, response.content, tool_call_dicts)
-            await self._execute_tool_calls(
+            tool_exec_results = await self._execute_tool_calls(
                 messages=messages,
                 tool_calls=tool_calls,
                 trace_id=trace_id,
                 include_severity=include_severity,
                 parallel_tool_exec=parallel_tool_exec,
             )
+            for name, success in tool_exec_results:
+                if success:
+                    failed_tools.discard(name)
+                else:
+                    failed_tools.add(name)
             total_tool_calls += len(tool_calls)
             for tc in tool_calls:
                 tool_call_counts[tc.name] = tool_call_counts.get(tc.name, 0) + 1
@@ -491,7 +504,8 @@ class TurnEngine:
         trace_id: str | None,
         include_severity: bool,
         parallel_tool_exec: bool,
-    ) -> None:
+    ) -> list[tuple[str, bool]]:
+        statuses: list[tuple[str, bool]] = []
         if parallel_tool_exec:
             tool_coros = []
             tool_starts: dict[str, float] = {}
@@ -512,10 +526,13 @@ class TurnEngine:
             for tool_call, result in zip(tool_calls, results):
                 if isinstance(result, Exception):
                     result_str = f"Error executing tool {tool_call.name}: {str(result)}"
+                    statuses.append((tool_call.name, False))
                 elif isinstance(result, ToolResult):
                     result_str = self._format_tool_result_output(result, include_severity=include_severity)
+                    statuses.append((tool_call.name, bool(result.success)))
                 else:
                     result_str = str(result)
+                    statuses.append((tool_call.name, True))
                 duration_s = None
                 if tool_call.id in tool_starts:
                     duration_s = round(float(time.perf_counter() - tool_starts[tool_call.id]), 4)
@@ -529,7 +546,7 @@ class TurnEngine:
                     "result_len": len(result_str),
                 })
                 self.context.add_tool_result(messages, tool_call.id, tool_call.name, result_str)
-            return
+            return statuses
 
         for tool_call in tool_calls:
             args_str = json.dumps(tool_call.arguments)
@@ -537,9 +554,12 @@ class TurnEngine:
             result = await self.executor.execute(tool_call.name, tool_call.arguments)
             if isinstance(result, ToolResult):
                 result_str = self._format_tool_result_output(result, include_severity=include_severity)
+                statuses.append((tool_call.name, bool(result.success)))
             else:
                 result_str = str(result)
+                statuses.append((tool_call.name, True))
             self.context.add_tool_result(messages, tool_call.id, tool_call.name, result_str)
+        return statuses
 
     async def _compact_messages_if_needed(self, messages: list[dict[str, Any]], trace_id: str | None) -> None:
         guard = ContextGuard(model=self.model)

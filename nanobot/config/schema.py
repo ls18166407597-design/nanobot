@@ -129,12 +129,30 @@ class MacToolsConfig(BaseModel):
     confirm_mode: str = "warn"
 
 
+class MCPToolsConfig(BaseModel):
+    """MCP tool runtime defaults."""
+
+    startup_timeout: int = 8
+    request_timeout: int = 20
+    max_output_chars: int = 12000
+
+
+class ToolPolicyConfig(BaseModel):
+    """Tool routing policy configuration."""
+
+    web_default: str = "tavily"  # tavily | browser
+    enable_mcp_fallback: bool = True
+    allow_explicit_mcp: bool = True
+
+
 class ToolsConfig(BaseModel):
     """Tools configuration."""
 
     web: WebToolsConfig = Field(default_factory=WebToolsConfig)
     exec: ExecToolConfig = Field(default_factory=ExecToolConfig)
     mac: MacToolsConfig = Field(default_factory=MacToolsConfig)
+    mcp: MCPToolsConfig = Field(default_factory=MCPToolsConfig)
+    policy: ToolPolicyConfig = Field(default_factory=ToolPolicyConfig)
     restrict_to_workspace: bool = False  # If true, restrict all tool access to workspace directory
     error_fallback_channel: str = "cli"  # Fallback channel when system message has no origin
     error_fallback_chat_id: str = "direct"  # Fallback chat_id when system message has no origin
@@ -146,16 +164,16 @@ class ToolsConfig(BaseModel):
 
 class BrainConfig(BaseModel):
     """Configuration for AI cognitive features."""
-    
+
     auto_summarize: bool = True
     light_rag: bool = True
     safety_guard: bool = True
     reasoning: bool = True  # Toggle for reasoning instructions (<think> format)
-    
+
     # Heartbeat settings
     heartbeat_enabled: bool = False  # Disabled by default to save costs
     heartbeat_interval: int = 1800  # Default 30 minutes in seconds
-    
+
     # Advanced settings
     memory_chunk_size: int = 500
     summary_threshold: int = 40  # Messages count to trigger summary
@@ -187,25 +205,25 @@ class Config(BaseSettings):
     def get_api_key_info(self, model: str | None = None) -> dict[str, str | None]:
         """Get API key and its source information (JSON path)."""
         model_name = (model or self.agents.defaults.model)
-        
+
         # 0. High priority: Check brain.provider_registry
         if hasattr(self, "brain") and self.brain.provider_registry:
             for p in self.brain.provider_registry:
                 if (
-                    p.get("name") == model_name or 
-                    p.get("model") == model_name or 
+                    p.get("name") == model_name or
+                    p.get("model") == model_name or
                     p.get("model", "").lower() == model_name.lower()
                 ):
                     api_key = p.get("api_key") or p.get("apiKey")
                     if api_key:
                         return {
-                            "key": api_key, 
+                            "key": api_key,
                             "path": f"brain.providerRegistry[{p.get('name')}]",
                             "model": p.get("model")
                         }
 
         model_name_lower = model_name.lower()
-        
+
         # 1. Match by model name to specific provider
         if "anthropic" in model_name_lower or "claude" in model_name_lower:
             return {"key": self.providers.anthropic.api_key, "path": "providers.anthropic.api_key"}
@@ -240,13 +258,13 @@ class Config(BaseSettings):
     def get_api_base(self, model: str | None = None) -> str | None:
         """Get API base URL based on model name."""
         model_name = (model or self.agents.defaults.model)
-        
+
         # 0. High priority: Check brain.provider_registry
         if hasattr(self, "brain") and self.brain.provider_registry:
             for p in self.brain.provider_registry:
                 if (
-                    p.get("name") == model_name or 
-                    p.get("model") == model_name or 
+                    p.get("name") == model_name or
+                    p.get("model") == model_name or
                     p.get("model", "").lower() == model_name.lower()
                 ):
                     base_url = p.get("base_url") or p.get("baseUrl")
@@ -273,12 +291,12 @@ class Config(BaseSettings):
             return self.providers.zhipu.api_base
         if "moonshot" in model_name_lower or "kimi" in model_name_lower:
             return self.providers.moonshot.api_base
-        
-        # FINAL FALLBACK: Only use openai.api_base if it looks like a local proxy 
+
+        # FINAL FALLBACK: Only use openai.api_base if it looks like a local proxy
         # or if no other model match was found. DO NOT blindly fall back to vLLM.
         if self.providers.openai.api_base:
             return self.providers.openai.api_base
-            
+
         return None
 
     model_config = SettingsConfigDict(

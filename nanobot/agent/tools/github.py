@@ -1,259 +1,185 @@
+"""GitHub tool backed by MCP server."""
+
+from __future__ import annotations
+
 import json
 from typing import Any
 
-from github import Auth, Github
-
 from nanobot.agent.tools.base import Tool, ToolResult
-
+from nanobot.mcp import MCPServerConfig, MCPStdioClient
 from nanobot.utils.helpers import get_tool_config_path
 
 
 class GitHubTool(Tool):
-    """Tool for interacting with GitHub (issues, PRs, repos)."""
+    """GitHub operations via MCP server."""
 
     name = "github"
-    description = """
-    Interact with GitHub to manage issues, PRs, and repositories.
-    Capabilities:
-    - Issues: List, read, create, comment.
-    - PRs: List, get diff.
-    - Repos: List my repos.
-
-    Setup:
-    Requires '.home/tool_configs/github_config.json' with:
-    { "token": "ghp_..." }
-    """
+    description = (
+        "GitHub MCP wrapper. "
+        "Use action='list_tools' to inspect supported MCP tools, "
+        "then action='call_tool' to execute one tool."
+    )
     parameters = {
         "type": "object",
         "properties": {
             "action": {
                 "type": "string",
-                "enum": [
-                    "list_issues",
-                    "get_issue",
-                    "create_issue",
-                    "comment_issue",
-                    "list_prs",
-                    "get_pr_diff",
-                    "list_repos",
-                    "list_commits",
-                    "setup",
-                ],
-                "description": "The action to perform.",
+                "enum": ["setup", "list_tools", "call_tool"],
+                "description": "setup: save token. list_tools/call_tool: use MCP server 'github'.",
             },
-            "repo": {"type": "string", "description": "Repository name (e.g. 'owner/repo')."},
-            "issue_number": {"type": "integer", "description": "Issue or PR number."},
-            "title": {"type": "string", "description": "Title for new issue."},
-            "body": {"type": "string", "description": "Body content for issue/comment."},
-            "limit": {"type": "integer", "description": "Limit results (default 10)."},
-            "state": {
-                "type": "string",
-                "enum": ["open", "closed", "all"],
-                "description": "State for filtering issues/PRs (default 'open').",
-            },
-            "setup_token": {"type": "string", "description": "GitHub PAT for setup."},
+            "mcp_tool": {"type": "string", "description": "MCP tool name (required for call_tool)."},
+            "arguments": {"type": "object", "description": "Arguments for MCP tool call."},
+            "setup_token": {"type": "string", "description": "GitHub token for setup."},
+            "timeout": {"type": "integer", "minimum": 1, "maximum": 120},
         },
         "required": ["action"],
     }
 
-    def _load_config(self):
-        config_path = get_tool_config_path("github_config.json")
-        if not config_path.exists():
-            return None
-        try:
-            with open(config_path, "r") as f:
-                return json.load(f)
-        except Exception:
-            return None
-
-    def _save_config(self, token):
-        config_path = get_tool_config_path("github_config.json", for_write=True)
-        config_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(config_path, "w") as f:
-            json.dump({"token": token}, f)
-
     async def execute(self, action: str, **kwargs: Any) -> ToolResult:
         if action == "setup":
-            token = kwargs.get("setup_token")
+            token = str(kwargs.get("setup_token", "")).strip()
             if not token:
                 return ToolResult(
                     success=False,
                     output="Error: 'setup_token' is required for setup.",
-                    remedy="请提供 GitHub Personal Access Token。格式：action='setup', setup_token='ghp_...'"
+                    remedy="请提供 GitHub PAT：action='setup', setup_token='ghp_...'",
                 )
-            self._save_config(token)
-            return ToolResult(success=True, output="GitHub configuration saved successfully.")
+            self._save_github_token(token)
+            return ToolResult(success=True, output="GitHub token saved to github_config.json.")
 
-        config = self._load_config()
-        if not config or "token" not in config:
-            return ToolResult(
-                success=False,
-                output="Error: GitHub not configured.",
-                remedy="GitHub 未配置。请先调用 setup 动作：action='setup', setup_token='您的TOKEN'"
-            )
+        server_cfg, err = self._build_github_server_config(timeout=kwargs.get("timeout"))
+        if err:
+            return ToolResult(success=False, output=err)
 
+        if action == "list_tools":
+            return await self._list_tools(server_cfg)
+
+        if action == "call_tool":
+            tool_name = str(kwargs.get("mcp_tool", "")).strip()
+            if not tool_name:
+                return ToolResult(
+                    success=False,
+                    output="Error: 'mcp_tool' is required for call_tool.",
+                    remedy="先调用 action='list_tools' 查看可用工具，再指定 mcp_tool。",
+                )
+            args = kwargs.get("arguments") or {}
+            if not isinstance(args, dict):
+                return ToolResult(success=False, output="Error: 'arguments' must be an object.")
+            return await self._call_tool(server_cfg, tool_name=tool_name, arguments=args)
+
+        return ToolResult(success=False, output=f"Unknown action: {action}")
+
+    async def _list_tools(self, cfg: MCPServerConfig) -> ToolResult:
         try:
-            auth = Auth.Token(config["token"])
-            g = Github(auth=auth)
-
-            if action == "list_issues":
-                repo_name = kwargs.get("repo")
-                if not repo_name:
-                    return ToolResult(success=False, output="Error: 'repo' is required.", remedy="请提供仓库全名，例如 'owner/repo'。")
-                output = self._list_issues(
-                    g, repo_name, kwargs.get("state", "open"), kwargs.get("limit", 10)
-                )
-                return ToolResult(success=True, output=output)
-
-            elif action == "get_issue":
-                repo_name = kwargs.get("repo")
-                number = kwargs.get("issue_number")
-                if not repo_name or not number:
-                    return ToolResult(success=False, output="Error: 'repo' and 'issue_number' required.", remedy="请确保提供了 'repo' 和 'issue_number' 参数。")
-                output = self._get_issue(g, repo_name, number)
-                return ToolResult(success=True, output=output)
-
-            elif action == "create_issue":
-                repo_name = kwargs.get("repo")
-                title = kwargs.get("title")
-                body = kwargs.get("body", "")
-                if not repo_name or not title:
-                    return ToolResult(success=False, output="Error: 'repo' and 'title' required.", remedy="创建 Issue 需要 'repo' 和 'title' 参数。")
-                output = self._create_issue(g, repo_name, title, body)
-                return ToolResult(success=True, output=output)
-
-            elif action == "comment_issue":
-                repo_name = kwargs.get("repo")
-                number = kwargs.get("issue_number")
-                body = kwargs.get("body")
-                if not repo_name or not number or not body:
-                    return ToolResult(success=False, output="Error: 'repo', 'issue_number', 'body' required.", remedy="评论 Issue 需要 'repo', 'issue_number' 和 'body' 参数。")
-                output = self._comment_issue(g, repo_name, number, body)
-                return ToolResult(success=True, output=output)
-
-            elif action == "list_prs":
-                repo_name = kwargs.get("repo")
-                if not repo_name:
-                    return ToolResult(success=False, output="Error: 'repo' is required.", remedy="列出 PR 需要提供 'repo' 参数。")
-                output = self._list_prs(
-                    g, repo_name, kwargs.get("state", "open"), kwargs.get("limit", 10)
-                )
-                return ToolResult(success=True, output=output)
-
-            elif action == "get_pr_diff":
-                repo_name = kwargs.get("repo")
-                number = kwargs.get("issue_number")
-                if not repo_name or not number:
-                    return ToolResult(success=False, output="Error: 'repo' and 'issue_number' required.", remedy="获取 Diff 需要 'repo' 和 'issue_number' 参数。")
-                output = self._get_pr_diff(g, repo_name, number)
-                return ToolResult(success=True, output=output)
-
-            elif action == "list_repos":
-                output = self._list_repos(g, kwargs.get("limit", 10))
-                return ToolResult(success=True, output=output)
-
-            elif action == "list_commits":
-                repo_name = kwargs.get("repo")
-                if not repo_name:
-                    return ToolResult(success=False, output="Error: 'repo' is required.", remedy="列出提交记录需要提供 'repo' 参数。")
-                output = self._list_commits(g, repo_name, kwargs.get("limit", 10))
-                return ToolResult(success=True, output=output)
-
-            else:
-                return ToolResult(success=False, output=f"Unknown action: {action}", remedy="请检查 action 参数，确保其在允许的枚举值内。")
+            async with MCPStdioClient(cfg) as client:
+                await client.initialize()
+                result = await client.request("tools/list", {})
         except Exception as e:
-            error_msg = str(e)
-            remedy = None
-            if "401" in error_msg or "Bad credentials" in error_msg:
-                remedy = "身份验证失败。请检查您的 GitHub Token 是否过期或具有正确的权限，并尝试重新 setup。"
-            elif "404" in error_msg:
-                remedy = "资源未找到。请确认仓库名称 (repo) 或 Issue 编号是否正确，以及 Token 是否有权访问该仓库。"
-            return ToolResult(success=False, output=f"GitHub Tool Error: {error_msg}", remedy=remedy)
+            return ToolResult(success=False, output=f"Error listing GitHub MCP tools: {e}")
 
-    def _list_issues(self, g, repo_name, state, limit):
-        repo = g.get_repo(repo_name)
-        issues = repo.get_issues(state=state)
-        output = [f"Issues in {repo_name} ({state}):"]
-        count = 0
-        for issue in issues:
-            if count >= limit:
-                break
-            if issue.pull_request:
-                continue  # Skip PRs
-            output.append(f"#{issue.number} {issue.title} (by {issue.user.login})")
-            count += 1
-        return "\n".join(output)
+        tools = result.get("tools", [])
+        if not isinstance(tools, list) or not tools:
+            return ToolResult(success=True, output="GitHub MCP server returned no tools.")
+        lines = ["GitHub MCP tools:"]
+        for item in tools:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name", "unknown"))
+            desc = str(item.get("description", "")).strip()
+            lines.append(f"- {name}: {desc}" if desc else f"- {name}")
+        return ToolResult(success=True, output="\n".join(lines))
 
-    def _get_issue(self, g, repo_name, number):
-        repo = g.get_repo(repo_name)
-        issue = repo.get_issue(number)
-        comments = list(issue.get_comments())
-        output = [
-            f"#{issue.number} {issue.title}",
-            f"State: {issue.state}",
-            f"Author: {issue.user.login}",
-            f"\nBody:\n{issue.body}\n",
-            f"Comments ({len(comments)}):",
-        ]
-        for c in comments[-5:]:  # Last 5 comments (PyGithub paginates, list() forces fetch)
-            output.append(f"[{c.user.login}]: {c.body[:200]}...")
-        return "\n".join(output)
+    async def _call_tool(self, cfg: MCPServerConfig, *, tool_name: str, arguments: dict[str, Any]) -> ToolResult:
+        try:
+            async with MCPStdioClient(cfg) as client:
+                await client.initialize()
+                result = await client.request(
+                    "tools/call",
+                    {"name": tool_name, "arguments": arguments},
+                )
+        except Exception as e:
+            return ToolResult(success=False, output=f"Error calling GitHub MCP tool '{tool_name}': {e}")
 
-    def _create_issue(self, g, repo_name, title, body):
-        repo = g.get_repo(repo_name)
-        issue = repo.create_issue(title=title, body=body)
-        return f"Issue created: #{issue.number} {issue.html_url}"
+        is_error = bool(result.get("isError", False))
+        output = self._render_result(result)
+        return ToolResult(success=not is_error, output=output)
 
-    def _comment_issue(self, g, repo_name, number, body):
-        repo = g.get_repo(repo_name)
-        issue = repo.get_issue(number)
-        comment = issue.create_comment(body)
-        return f"Comment added: {comment.html_url}"
+    def _build_github_server_config(self, timeout: int | None) -> tuple[MCPServerConfig | None, str | None]:
+        mcp_cfg_path = get_tool_config_path("mcp_config.json")
+        if not mcp_cfg_path.exists():
+            return None, "Error: mcp_config.json not found."
+        try:
+            with open(mcp_cfg_path, "r", encoding="utf-8") as f:
+                mcp_cfg = json.load(f)
+        except Exception as e:
+            return None, f"Error: failed to parse mcp_config.json: {e}"
 
-    def _list_prs(self, g, repo_name, state, limit):
-        repo = g.get_repo(repo_name)
-        prs = repo.get_pulls(state=state)
-        output = [f"PRs in {repo_name} ({state}):"]
-        count = 0
-        for pr in prs:
-            if count >= limit:
-                break
-            output.append(f"#{pr.number} {pr.title} (by {pr.user.login})")
-            count += 1
-        return "\n".join(output)
+        server_raw = (mcp_cfg.get("servers") or {}).get("github")
+        if not isinstance(server_raw, dict):
+            return None, "Error: MCP server 'github' not found in mcp_config.json."
+        if not bool(server_raw.get("enabled", True)):
+            return None, "Error: MCP server 'github' is disabled."
 
-    def _get_pr_diff(self, g, repo_name, number):
-        repo = g.get_repo(repo_name)
-        pr = repo.get_pull(number)
-        # PyGithub doesn't wrap raw diff easily, use requests on diff_url for raw patch
-        import requests
+        command = str(server_raw.get("command", "")).strip()
+        if not command:
+            return None, "Error: MCP server 'github' command is empty."
 
-        resp = requests.get(pr.diff_url)
-        return f"Diff for PR #{number}:\n{resp.text[:5000]}"  # Truncate
+        env = {str(k): str(v) for k, v in (server_raw.get("env") or {}).items()}
+        token = self._load_github_token()
+        if token and "GITHUB_TOKEN" not in env:
+            env["GITHUB_TOKEN"] = token
 
-    def _list_repos(self, g, limit):
-        output = ["My Repositories:"]
-        count = 0
-        for repo in g.get_user().get_repos(sort="updated", direction="desc"):
-            if count >= limit:
-                break
-            output.append(
-                f"{repo.full_name} ({repo.stargazers_count}★) - {repo.description or 'No desc'}"
-            )
-            count += 1
-        return "\n".join(output)
+        request_timeout = int(server_raw.get("request_timeout", 20))
+        if timeout is not None:
+            request_timeout = max(1, min(120, int(timeout)))
 
-    def _list_commits(self, g, repo_name, limit):
-        repo = g.get_repo(repo_name)
-        commits = repo.get_commits()
-        output = [f"Recent commits in {repo_name}:"]
-        count = 0
-        for commit in commits:
-            if count >= limit:
-                break
-            msg = commit.commit.message.split("\n")[0]
-            author = commit.commit.author.name
-            date = commit.commit.author.date.strftime("%Y-%m-%d")
-            output.append(f"[{date}] {commit.sha[:7]} {msg} (by {author})")
-            count += 1
-        return "\n".join(output)
+        return (
+            MCPServerConfig(
+                command=command,
+                args=[str(x) for x in (server_raw.get("args") or [])],
+                env=env,
+                cwd=server_raw.get("cwd"),
+                startup_timeout=float(server_raw.get("startup_timeout", 8)),
+                request_timeout=float(request_timeout),
+                enabled=True,
+                allowed_tools=[str(x) for x in (server_raw.get("allowed_tools") or [])],
+            ),
+            None,
+        )
+
+    def _load_github_token(self) -> str | None:
+        path = get_tool_config_path("github_config.json")
+        if not path.exists():
+            return None
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            token = str(data.get("token", "")).strip()
+            return token or None
+        except Exception:
+            return None
+
+    def _save_github_token(self, token: str) -> None:
+        path = get_tool_config_path("github_config.json", for_write=True)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"token": token}, f, ensure_ascii=False, indent=2)
+
+    def _render_result(self, result: dict[str, Any]) -> str:
+        content = result.get("content", [])
+        chunks: list[str] = []
+        if isinstance(content, list):
+            for item in content:
+                if not isinstance(item, dict):
+                    continue
+                text = item.get("text")
+                if isinstance(text, str) and text.strip():
+                    chunks.append(text.strip())
+                else:
+                    chunks.append(json.dumps(item, ensure_ascii=False))
+        structured = result.get("structuredContent")
+        if structured is not None:
+            chunks.append(json.dumps(structured, ensure_ascii=False, indent=2))
+        if not chunks:
+            chunks.append(json.dumps(result, ensure_ascii=False, indent=2))
+        return "\n".join(chunks)

@@ -1,9 +1,9 @@
 import asyncio
 import json
 import uuid
-from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, List
+
 if TYPE_CHECKING:
     from nanobot.session.manager import Session
 
@@ -13,25 +13,24 @@ if TYPE_CHECKING:
 
 from loguru import logger
 
-from nanobot.agent.context import ContextBuilder
-from nanobot.providers.factory import ProviderFactory
-from nanobot.agent.tools.registry import ToolRegistry
-from nanobot.agent.models import ModelRegistry
-from nanobot.bus.events import InboundMessage, OutboundMessage
-from nanobot.bus.queue import MessageBus
-from nanobot.providers.base import LLMProvider, LLMResponse, ToolCallRequest
-from nanobot.session.manager import SessionManager
-from nanobot.process import CommandQueue, CommandLane
+from nanobot.agent.context import SILENT_REPLY_TOKEN, ContextBuilder
 from nanobot.agent.context_guard import ContextGuard, TokenCounter
 from nanobot.agent.executor import ToolExecutor
-from nanobot.agent.context import SILENT_REPLY_TOKEN
-from nanobot.agent.turn_engine import TurnEngine
-from nanobot.agent.provider_router import ProviderRouter
-from nanobot.agent.tool_bootstrapper import ToolBootstrapper
 from nanobot.agent.message_flow import MessageFlowCoordinator
+from nanobot.agent.models import ModelRegistry
+from nanobot.agent.provider_router import ProviderRouter
 from nanobot.agent.system_turn_service import SystemTurnService
+from nanobot.agent.tool_bootstrapper import ToolBootstrapper
+from nanobot.agent.tool_policy import ToolPolicy
+from nanobot.agent.tools.registry import ToolRegistry
+from nanobot.agent.turn_engine import TurnEngine
 from nanobot.agent.user_turn_service import UserTurnService
+from nanobot.bus.events import InboundMessage, OutboundMessage
+from nanobot.bus.queue import MessageBus
 from nanobot.hooks import HookRegistry
+from nanobot.process import CommandLane, CommandQueue
+from nanobot.providers.base import LLMProvider, LLMResponse, ToolCallRequest
+from nanobot.session.manager import SessionManager
 
 
 class AgentLoop:
@@ -74,8 +73,8 @@ class AgentLoop:
         self.workspace = workspace
         self.model = model or provider.get_default_model()
         self.max_iterations = max_iterations
-        from nanobot.config.schema import BrainConfig, ExecToolConfig, ProvidersConfig, ToolsConfig
-        
+        from nanobot.config.schema import BrainConfig, ExecToolConfig, ToolsConfig
+
         self.tools_config = tools_config or ToolsConfig()
 
         self.exec_config = exec_config or ExecToolConfig()
@@ -106,6 +105,11 @@ class AgentLoop:
             max_total_tool_calls=max(1, int(getattr(self.brain_config, "max_total_tool_calls", 30))),
             max_turn_seconds=max(5, int(getattr(self.brain_config, "max_turn_seconds", 45))),
             hook_registry=self.hook_registry,
+            tool_policy=ToolPolicy(
+                web_default=getattr(self.tools_config.policy, "web_default", "tavily"),
+                enable_mcp_fallback=bool(getattr(self.tools_config.policy, "enable_mcp_fallback", True)),
+                allow_explicit_mcp=bool(getattr(self.tools_config.policy, "allow_explicit_mcp", True)),
+            ),
         )
         self.system_turn_service = SystemTurnService(
             sessions=self.sessions,
@@ -124,7 +128,7 @@ class AgentLoop:
             filter_reasoning=self._filter_reasoning,
             is_silent_reply=self._is_silent_reply,
         )
-        
+
         # Initialize Model Registry
         self.model_registry = ModelRegistry()
         self.providers_config = providers_config
@@ -187,7 +191,7 @@ class AgentLoop:
                     name="deepseek"
                 )
             # Add others as needed...
-            
+
             # Also add dynamic providers from brain config (already handled by check command but good to have here)
             if self.brain_config.provider_registry:
                 for p in self.brain_config.provider_registry:
@@ -287,11 +291,11 @@ class AgentLoop:
         """Send a proactive 'pulse' message to the user to show progress."""
         # Use MessageTool context if available
         message_tool = self.tools.get("message")
-        if (message_tool and 
-            hasattr(message_tool, "current_channel") and 
-            message_tool.current_channel and 
+        if (message_tool and
+            hasattr(message_tool, "current_channel") and
+            message_tool.current_channel and
             message_tool.current_chat_id):
-            
+
             from nanobot.bus.events import OutboundMessage
             await self.bus.publish_outbound(OutboundMessage(
                 channel=message_tool.current_channel,
@@ -346,11 +350,11 @@ class AgentLoop:
 
         guard = ContextGuard(model=self.model)
         # lower threshold for proactive summarization
-        safe_limit = guard.limit * 0.6 
-        
+        safe_limit = guard.limit * 0.6
+
         current_usage = TokenCounter.count_messages(session.messages)
         count_threshold = self.brain_config.summary_threshold
-        
+
         if current_usage < safe_limit and len(session.messages) < count_threshold:
             return
 
@@ -408,15 +412,14 @@ class AgentLoop:
             return []
 
         import re
-        import uuid
 
         # Look for JSON-like patterns: { ... } or [ { ... }, ... ]
         # We try to find the largest block that looks like a tool call
         results: List[ToolCallRequest] = []
-        
+
         # Pattern 1: Look for JSON blocks in markdown code blocks
         blocks = re.findall(r"```(?:json)?\s*([\s\S]*?)```", text)
-        
+
         # Pattern 2: If no code blocks, treat the entire text as a potential JSON block if it starts with {
         if not blocks:
             text_strip = text.strip()
@@ -460,7 +463,7 @@ class AgentLoop:
 
                     data, next_pos = decoder.raw_decode(block[pos:])
                     pos += next_pos
-                    
+
                     # Process the parsed data
                     if isinstance(data, list):
                         for item in data:
@@ -488,25 +491,25 @@ class AgentLoop:
     def _filter_reasoning(self, content: str) -> str:
         """
         Remove internal reasoning within <think> tags.
-        
+
         Args:
             content: The raw response content.
-            
+
         Returns:
             Content with reasoning tags and their contents removed.
         """
         if not content:
             return content
-            
+
         import re
         # Strip <think>...</think> (non-greedy, including newline)
         filtered = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL)
         filtered = re.sub(r"<think>.*$", "", filtered, flags=re.DOTALL).strip()
-        
+
         if not filtered and content:
             # Never leak hidden reasoning even if model returned only <think> blocks.
             return "我已完成处理。"
-            
+
         return filtered
 
     def _is_silent_reply(self, content: str) -> bool:
