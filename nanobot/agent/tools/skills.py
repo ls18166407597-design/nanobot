@@ -1,5 +1,3 @@
-import os
-import shutil
 from pathlib import Path
 from typing import Any
 
@@ -7,22 +5,19 @@ import aiohttp
 
 from nanobot.agent.skills import SkillsLoader
 from nanobot.agent.tools.base import Tool, ToolResult
-from nanobot.utils.helpers import safe_resolve_path
 
 
 class SkillsTool(Tool):
-    """Tool for managing Nanobot skills (browsing plaza, installing experts)."""
+    """技能管理工具（已安装技能 + 在线广场检索/安装）。"""
 
     name = "skills"
     description = """
-    管理和探索你工作区及库中的技能。
-    使用此工具可以安装新功能、列出已安装的技能或搜索技能广场。
+    管理技能：列出已安装技能、联网检索技能广场、按 URL 安装技能。
     
     动作:
-    - list_installed: 列出当前已激活的技能。
-    - list_plaza: 浏览可用的技能广场（库）。
-    - search_plaza: 在广场中按查询词搜索技能。
-    - install: 将技能从库安装到你的工作区。
+    - list_installed: 列出当前已安装技能（系统层 + 工作区层）。
+    - browse_online: 联网搜索技能广场（优先 clawhub.com）。
+    - install_url: 从 SKILL.md URL 安装到工作区。
     """
 
     parameters = {
@@ -31,10 +26,7 @@ class SkillsTool(Tool):
             "action": {
                 "type": "string",
                 "enum": [
-                    "list_plaza",
                     "browse_online",
-                    "search_plaza",
-                    "install",
                     "install_url",
                     "list_installed",
                 ],
@@ -62,20 +54,8 @@ class SkillsTool(Tool):
 
     async def execute(self, action: str, **kwargs: Any) -> ToolResult:
         try:
-            if action == "list_plaza":
-                output = self._list_plaza()
-                return ToolResult(success=True, output=output)
-            elif action == "browse_online":
+            if action == "browse_online":
                 output = await self._browse_online(kwargs.get("query", ""))
-                return ToolResult(success=True, output=output)
-            elif action == "search_plaza":
-                output = self._search_plaza(kwargs.get("query", ""))
-                return ToolResult(success=True, output=output)
-            elif action == "install":
-                output = self._install_skill(kwargs.get("skill_name", ""))
-                # Note: _install_skill returns Error starting string on failure, but we want to be more specific if possible.
-                if output.startswith("Error"):
-                    return ToolResult(success=False, output=output, remedy="请确认技能名称正确，且该技能存在于库（Plaza）中。")
                 return ToolResult(success=True, output=output)
             elif action == "install_url":
                 output = await self._install_url(kwargs.get("skill_name", ""), kwargs.get("url", ""))
@@ -86,78 +66,27 @@ class SkillsTool(Tool):
                 output = self._list_installed()
                 return ToolResult(success=True, output=output)
             else:
-                return ToolResult(success=False, output=f"Unknown action: {action}", remedy="请检查 action 参数（list_plaza, browse_online, search_plaza, install, install_url, list_installed）。")
+                return ToolResult(success=False, output=f"Unknown action: {action}", remedy="请检查 action 参数（browse_online, install_url, list_installed）。")
         except Exception as e:
             return ToolResult(success=False, output=f"Skills Tool Error: {str(e)}")
 
-    def _list_plaza(self) -> str:
-        skills = self.loader.list_skills(filter_unavailable=False)
-        core_skills = [s for s in skills if s["source"] == "core"]
-        if not core_skills:
-            return "No skills found in the core skill plaza."
-
-        output = ["--- OpenClaw Skill Plaza ---"]
-        for s in core_skills:
-            name = s["name"]
-            desc = self.loader._get_skill_description(s["name"])
-            output.append(f"- {name}: {desc}")
-        return "\n".join(output)
-
-    def _search_plaza(self, query: str) -> str:
-        if not query:
-            return "Error: 'query' required for search."
-        skills = self.loader.list_skills(filter_unavailable=False)
-        query = query.lower()
-        matches = []
-        for s in skills:
-            if s["source"] == "core":
-                name = str(s["name"])
-                desc = self.loader._get_skill_description(name).lower()
-                if query in name.lower() or query in desc:
-                    matches.append(f"- {name}: {desc}")
-
-        if not matches:
-            return f"No skills matching '{query}' found in the plaza."
-        return f"Plaza matches for '{query}':\n" + "\n".join(matches)
-
-    def _install_skill(self, skill_name: str) -> str:
-        if not skill_name:
-            return "Error: 'skill_name' required for install."
-
-        try:
-            # Normalize and validate name (prevent traversal)
-            clean_name = skill_name
-            lib_path = safe_resolve_path(self.loader.library_skills / clean_name, self.loader.library_skills)
-            dest_path = safe_resolve_path(self.loader.workspace_skills / clean_name, self.loader.workspace_skills)
-
-            if not lib_path.exists():
-                return f"Error: Skill '{clean_name}' not found in library."
-
-            if dest_path.exists():
-                return f"Skill '{clean_name}' is already installed in workspace."
-
-            os.makedirs(dest_path.parent, exist_ok=True)
-            shutil.copytree(lib_path, dest_path)
-            return (
-                f"Successfully installed '{clean_name}' to workspace. "
-                "It is now active and its patterns will be followed."
-            )
-        except PermissionError as e:
-            return str(e)
-        except Exception as e:
-            return f"Error installing skill: {str(e)}"
-
     async def _browse_online(self, query: str) -> str:
         if not self.search_func:
-            return "Error: Web search not configured. Cannot browse online plaza."
+            return (
+                "未配置联网搜索工具，无法在线检索技能广场。\n"
+                "可直接执行：`clawhub search \"关键词\"`"
+            )
 
-        search_query = f"site:clawhub.ai {query}" if query else "site:clawhub.ai"
+        search_query = f"site:clawhub.com {query}" if query else "site:clawhub.com"
         results = await self.search_func(query=search_query)
-        return f"--- Online Skill Plaza Search Results ---\n\n{results}\n\nNote: To install, use action='install_url' with the specific skill's SKILL.md URL."
+        return (
+            f"--- 技能广场在线搜索结果 ---\n\n{results}\n\n"
+            "如需安装，请使用 `install_url` 并传入该技能的 SKILL.md 直链。"
+        )
 
     async def _install_url(self, skill_name: str, url: str) -> str:
         if not skill_name or not url:
-            return "Error: Both 'skill_name' and 'url' are required for online installation."
+            return "Error: online installation requires both 'skill_name' and 'url'."
 
         dest_path = self.loader.workspace_skills / skill_name / "SKILL.md"
         if dest_path.exists():
@@ -174,7 +103,7 @@ class SkillsTool(Tool):
 
             os.makedirs(dest_path.parent, exist_ok=True)
             dest_path.write_text(content, encoding="utf-8")
-            return f"Successfully installed '{skill_name}' from the online plaza! It is now active."
+            return f"Successfully installed '{skill_name}' from online source. It is now active."
         except Exception as e:
             return f"Failed to download skill: {str(e)}"
 
@@ -182,11 +111,24 @@ class SkillsTool(Tool):
         skills = self.loader.list_skills(filter_unavailable=False)
         installed = [s for s in skills if s["source"] in ["workspace", "core"]]
         if not installed:
-            return "No skills found in workspace or built-in directories."
+            return "未发现已安装技能。"
 
-        output = ["--- Installed Skills ---"]
-        for s in installed:
-            desc = self.loader._get_skill_description(s["name"])
-            source = f"({s['source']})"
-            output.append(f"- {s['name']}: {desc} {source}")
+        ws = [s for s in installed if s["source"] == "workspace"]
+        core = [s for s in installed if s["source"] == "core"]
+        output = ["--- 已安装技能 ---"]
+        output.append("系统层：")
+        if core:
+            for s in core:
+                desc = self.loader._get_skill_description(s["name"])
+                output.append(f"- {s['name']}: {desc}")
+        else:
+            output.append("- (空)")
+
+        output.append("工作区层：")
+        if ws:
+            for s in ws:
+                desc = self.loader._get_skill_description(s["name"])
+                output.append(f"- {s['name']}: {desc}")
+        else:
+            output.append("- (空)")
         return "\n".join(output)
