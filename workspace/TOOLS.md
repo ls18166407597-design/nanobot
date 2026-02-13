@@ -5,14 +5,16 @@
 ## 路由总原则
 - 先专用后通用：能用领域工具就不要先走通用搜索。
 - 单子问题单通道：同一步尽量只用一类联网能力，避免并行混用导致噪声。
-- 对用户展示“业务来源”（如 `12306`、`GitHub`、`DuckDuckGo`、`Browser`），不展示实现细节（如 `MCP`/SDK）。
+- 对用户展示“业务来源”（如 `12306`、`GitHub`、`Tavily API`、`Browser`），不展示实现细节（如 `MCP`/SDK）。
+- 运行态问题优先调用 `system_status` 获取最近失败与健康快照，再给修复方案。
 
 ## 联网工具分工
 - `train_ticket`：火车票查询能力（优先使用）。
 - `amap`：高德地图能力（地理编码、逆地理、路线、距离、周边等）。
 - `tavily`：API 检索能力。
-- `duckduckgo`：通用网页检索能力（后端封装，作为信息检索第二优先级）。
 - `browser`：页面渲染/交互能力。
+- `system_status`：系统运行状态/工具健康/近期失败事件查询。
+- `system_status.reset_runtime`：清理运行态（sessions/failures/logs），默认保留 `tasks.json`，需 `confirm=true`。
 - 具体选择顺序由运行时 ToolPolicy 决定，本文件不重复定义策略细节。
 
 ## 邮件工具分工
@@ -51,5 +53,4 @@
 - `feishu` -> `feishu_config.json`
 - `train_ticket` -> `mcp_config.json`（读取 `servers.12306`）
 - `amap` -> `mcp_config.json`（读取 `servers.amap`）
-- `duckduckgo` -> `mcp_config.json`（读取 `servers.duckduckgo`）
 - `github` -> `mcp_config.json`（读取 `servers.github`）

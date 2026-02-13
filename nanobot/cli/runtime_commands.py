@@ -437,10 +437,12 @@ def cmd_gateway(console, logo: str, port: int, verbose: bool) -> None:
         temperature=config.agents.defaults.temperature,
         mac_confirm_mode=config.tools.mac.confirm_mode,
     )
+    cron.incident_manager = agent.incident_manager
 
     async def on_cron_job(job: CronJob) -> str | None:
         from nanobot.bus.events import OutboundMessage
         from nanobot.utils.helpers import audit_log
+        from nanobot.runtime.failures import record_failure
 
         audit_log("cron_start", {"job_id": job.id, "message": job.payload.message})
         try:
@@ -449,6 +451,15 @@ def cmd_gateway(console, logo: str, port: int, verbose: bool) -> None:
                 if task_tool is None:
                     raise RuntimeError("task tool is not available for cron task_run")
                 task_result = await task_tool.execute(action="run", name=job.payload.task_name)
+                if not bool(getattr(task_result, "success", False)):
+                    msg = str(getattr(task_result, "output", "task run failed"))
+                    record_failure(
+                        source="cron",
+                        category="task_run",
+                        summary=f"任务执行失败: {job.payload.task_name}",
+                        details={"job_id": job.id, "task_name": job.payload.task_name, "error": msg[:1000]},
+                    )
+                    raise RuntimeError(msg)
                 response = str(getattr(task_result, "output", task_result))
             else:
                 response = await agent.process_direct(
@@ -470,6 +481,12 @@ def cmd_gateway(console, logo: str, port: int, verbose: bool) -> None:
             return response
         except Exception as e:
             audit_log("cron_error", {"job_id": job.id, "error": str(e)})
+            record_failure(
+                source="cron",
+                category="job_error",
+                summary=f"Cron 作业失败: {job.name}",
+                details={"job_id": job.id, "name": job.name, "error": str(e)[:1000]},
+            )
             raise
 
     cron.on_job = on_cron_job

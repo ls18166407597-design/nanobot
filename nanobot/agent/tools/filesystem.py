@@ -3,6 +3,7 @@
 from pathlib import Path
 from typing import Any
 
+from nanobot.agent.file_write_policy import FileWritePolicy
 from nanobot.agent.tools.base import Tool, ToolResult
 from nanobot.utils.helpers import safe_resolve_path
 
@@ -10,8 +11,9 @@ from nanobot.utils.helpers import safe_resolve_path
 class ReadFileTool(Tool):
     """Tool to read file contents."""
 
-    def __init__(self, allowed_dir: Path | None = None):
+    def __init__(self, allowed_dir: Path | None = None, write_policy: FileWritePolicy | None = None):
         self._allowed_dir = allowed_dir
+        self._write_policy = write_policy
 
     @property
     def name(self) -> str:
@@ -48,8 +50,9 @@ class ReadFileTool(Tool):
 class WriteFileTool(Tool):
     """Tool to write content to a file."""
 
-    def __init__(self, allowed_dir: Path | None = None):
+    def __init__(self, allowed_dir: Path | None = None, write_policy: FileWritePolicy | None = None):
         self._allowed_dir = allowed_dir
+        self._write_policy = write_policy
 
     @property
     def name(self) -> str:
@@ -66,6 +69,8 @@ class WriteFileTool(Tool):
             "properties": {
                 "path": {"type": "string", "description": "The file path to write to"},
                 "content": {"type": "string", "description": "The content to write"},
+                "confirm": {"type": "boolean", "description": "受控文件修改确认标记"},
+                "change_note": {"type": "string", "description": "受控文件修改原因摘要"},
             },
             "required": ["path", "content"],
         }
@@ -73,6 +78,18 @@ class WriteFileTool(Tool):
     async def execute(self, path: str, content: str, **kwargs: Any) -> ToolResult:
         try:
             file_path = safe_resolve_path(path, self._allowed_dir)
+            if self._write_policy:
+                ok, reason = self._write_policy.check_write(
+                    file_path,
+                    confirm=bool(kwargs.get("confirm", False)),
+                    change_note=str(kwargs.get("change_note", "") or ""),
+                )
+                if not ok:
+                    return ToolResult(
+                        success=False,
+                        output=f"Blocked: {reason}",
+                        remedy="请修改目标文件路径，或在受控文件编辑时显式提供 confirm=true 与 change_note。",
+                    )
             file_path.parent.mkdir(parents=True, exist_ok=True)
             file_path.write_text(content, encoding="utf-8")
             return ToolResult(success=True, output=f"Successfully wrote {len(content)} bytes to {path}")
@@ -85,8 +102,9 @@ class WriteFileTool(Tool):
 class EditFileTool(Tool):
     """Tool to edit a file by replacing text."""
 
-    def __init__(self, allowed_dir: Path | None = None):
+    def __init__(self, allowed_dir: Path | None = None, write_policy: FileWritePolicy | None = None):
         self._allowed_dir = allowed_dir
+        self._write_policy = write_policy
 
     @property
     def name(self) -> str:
@@ -104,6 +122,8 @@ class EditFileTool(Tool):
                 "path": {"type": "string", "description": "The file path to edit"},
                 "old_text": {"type": "string", "description": "The exact text to find and replace"},
                 "new_text": {"type": "string", "description": "The text to replace with"},
+                "confirm": {"type": "boolean", "description": "受控文件修改确认标记"},
+                "change_note": {"type": "string", "description": "受控文件修改原因摘要"},
             },
             "required": ["path", "old_text", "new_text"],
         }
@@ -111,6 +131,18 @@ class EditFileTool(Tool):
     async def execute(self, path: str, old_text: str, new_text: str, **kwargs: Any) -> ToolResult:
         try:
             file_path = safe_resolve_path(path, self._allowed_dir)
+            if self._write_policy:
+                ok, reason = self._write_policy.check_write(
+                    file_path,
+                    confirm=bool(kwargs.get("confirm", False)),
+                    change_note=str(kwargs.get("change_note", "") or ""),
+                )
+                if not ok:
+                    return ToolResult(
+                        success=False,
+                        output=f"Blocked: {reason}",
+                        remedy="请修改目标文件路径，或在受控文件编辑时显式提供 confirm=true 与 change_note。",
+                    )
             if not file_path.exists():
                 return ToolResult(success=False, output=f"Error: File not found: {path}")
 

@@ -4,7 +4,9 @@ import traceback
 from typing import Any, Dict, Set, Protocol
 from loguru import logger
 
+from nanobot.agent.failure_types import FailureEvent, FailureSeverity
 from nanobot.agent.loop_guard import tool_call_hash
+from nanobot.agent.incident_manager import IncidentManager
 from nanobot.agent.tools.base import Tool, ToolResult
 
 class ToolRegistryProtocol(Protocol):
@@ -23,6 +25,7 @@ class ToolExecutor:
         max_failed_history: int = 100,
         failed_ttl_seconds: int = 600,
         hook_registry: Any | None = None,
+        incident_manager: IncidentManager | None = None,
     ):
         self.registry = registry
         self.failed_call_hashes: Set[str] = set()
@@ -31,6 +34,22 @@ class ToolExecutor:
         self.failed_ttl_seconds = failed_ttl_seconds
         self._failed_meta: Dict[str, Dict[str, Any]] = {}
         self.hook_registry = hook_registry
+        self.incident_manager = incident_manager
+        self._runtime_channel: str | None = None
+        self._runtime_chat_id: str | None = None
+        self._runtime_trace_id: str | None = None
+
+    def set_runtime_context(
+        self, *, channel: str | None = None, chat_id: str | None = None, trace_id: str | None = None
+    ) -> None:
+        self._runtime_channel = channel
+        self._runtime_chat_id = chat_id
+        self._runtime_trace_id = trace_id
+
+    def clear_runtime_context(self) -> None:
+        self._runtime_channel = None
+        self._runtime_chat_id = None
+        self._runtime_trace_id = None
 
     def _get_call_hash(self, name: str, params: Dict[str, Any]) -> str:
         # Use shared hash builder to keep loop policy consistent with TurnEngine.
@@ -52,6 +71,16 @@ class ToolExecutor:
         self._prune_failed(now)
         if call_hash in self.failed_call_hashes:
             logger.warning(f"Intercepted repeat failure for tool '{name}' with hash {call_hash[:8]}")
+            self._report_incident(
+                FailureEvent(
+                    source="tool_executor",
+                    category="repeat_failure_intercepted",
+                    summary=f"重复失败调用被拦截: {name}",
+                    severity=FailureSeverity.WARNING,
+                    retryable=False,
+                    details={"tool": name, "reason": "repeat_failure", "call_hash": call_hash[:16]},
+                )
+            )
             result = ToolResult(
                 success=False,
                 output=(
@@ -113,6 +142,20 @@ class ToolExecutor:
                         "severity": str(getattr(res, "severity", "")),
                     },
                 )
+                self._report_incident(
+                    FailureEvent(
+                        source="tool_executor",
+                        category="tool_failed",
+                        summary=f"工具调用失败: {name}",
+                        severity=FailureSeverity.ERROR,
+                        retryable=bool(getattr(res, "should_retry", False)),
+                        details={
+                            "tool": name,
+                            "reason": "tool_result_failed",
+                            "error_type": str(getattr(res, "severity", "")),
+                        },
+                    )
+                )
                 return res
             
             await self._trigger_hook(
@@ -130,6 +173,20 @@ class ToolExecutor:
         except Exception as e:
             tb = traceback.format_exc()
             logger.error(f"Unexpected error in ToolExecutor for {name}: {tb}")
+            self._report_incident(
+                FailureEvent(
+                    source="tool_executor",
+                    category="tool_executor_exception",
+                    summary=f"工具执行器内部异常: {name}",
+                    severity=FailureSeverity.CRITICAL,
+                    retryable=False,
+                    details={
+                        "tool": name,
+                        "error_type": type(e).__name__,
+                        "reason": "executor_exception",
+                    },
+                )
+            )
             await self._trigger_hook(
                 "tool_error",
                 {
@@ -144,6 +201,20 @@ class ToolExecutor:
                 output=f"Error: 内部系统错误 ({type(e).__name__}: {str(e)})。",
                 remedy="建议检查您的指令输入语法，或稍后重试。若问题持续，请联系管理员。"
             )
+
+    def _report_incident(self, event: FailureEvent) -> None:
+        if self.incident_manager is None:
+            return
+        if self._runtime_channel and "channel" not in event.details:
+            event.details["channel"] = self._runtime_channel
+        if self._runtime_chat_id and "chat_id" not in event.details:
+            event.details["chat_id"] = self._runtime_chat_id
+        if self._runtime_trace_id and "trace_id" not in event.details:
+            event.details["trace_id"] = self._runtime_trace_id
+        try:
+            self.incident_manager.report(event)
+        except Exception as e:
+            logger.debug(f"IncidentManager.report ignored error: {e}")
 
     async def _trigger_hook(self, event: str, payload: Dict[str, Any]) -> None:
         if self.hook_registry is None:

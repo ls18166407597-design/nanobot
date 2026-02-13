@@ -20,6 +20,7 @@ from nanobot.channels.base import BaseChannel
 from nanobot.channels.telegram_format import markdown_to_telegram_html, split_message
 from nanobot.channels.telegram_media import build_message_content
 from nanobot.config.schema import TelegramConfig
+from nanobot.runtime.failures import list_recent_failures
 from nanobot.session.service import SessionService
 from nanobot.utils.helpers import get_data_path
 
@@ -86,6 +87,8 @@ class TelegramChannel(BaseChannel):
             self._app.add_handler(CommandHandler("start", self._on_start))
             self._app.add_handler(CommandHandler("help", self._on_help))
             self._app.add_handler(CommandHandler("status", self._on_status))
+            self._app.add_handler(CommandHandler("failures", self._on_failures))
+            self._app.add_handler(CommandHandler("diagnose", self._on_diagnose))
             self._app.add_handler(CommandHandler("history", self._on_history))
             self._app.add_handler(CommandHandler("use", self._on_use))
             self._app.add_handler(CommandHandler("new", self._on_new))
@@ -107,6 +110,8 @@ class TelegramChannel(BaseChannel):
                     BotCommand("start", "开始使用"),
                     BotCommand("help", "查看可用命令"),
                     BotCommand("status", "查看机器人状态"),
+                    BotCommand("failures", "查看近期失败事件"),
+                    BotCommand("diagnose", "诊断近期失败事件"),
                     BotCommand("history", "查看会话历史"),
                     BotCommand("use", "切换到指定会话"),
                     BotCommand("new", "开启新会话"),
@@ -205,6 +210,8 @@ class TelegramChannel(BaseChannel):
             "/start - 开始使用\n"
             "/help - 查看命令说明\n"
             "/status - 查看机器人状态\n"
+            "/failures - 查看近期失败事件\n"
+            "/diagnose - 诊断近期失败事件\n"
             "/history - 查看会话历史\n"
             "/use <session_key> - 切换到指定会话\n"
             "/new - 开启新会话\n"
@@ -220,8 +227,40 @@ class TelegramChannel(BaseChannel):
         chat_id = str(update.message.chat_id)
         active_session = self._session_service.get_active_session_key(chat_id)
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        recent_failures = len(list_recent_failures(limit=5))
         await update.message.reply_text(
-            f"状态: 在线\n时间: {now}\n数据目录: {data_dir}\n当前会话: {active_session}"
+            f"状态: 在线\n时间: {now}\n数据目录: {data_dir}\n当前会话: {active_session}\n近期失败事件(5): {recent_failures}"
+        )
+
+    async def _on_failures(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /failures command."""
+        if not update.message:
+            return
+        items = list_recent_failures(limit=10)
+        if not items:
+            await update.message.reply_text("近期无失败事件。")
+            return
+        lines = ["近期失败事件（最多 10 条）:"]
+        for i, it in enumerate(items, start=1):
+            ts = str(it.get("ts", ""))[:19].replace("T", " ")
+            lines.append(f"{i}. [{ts}] {it.get('source', '-')}/{it.get('category', '-')}: {it.get('summary', '')}")
+        await update.message.reply_text("\n".join(lines))
+
+    async def _on_diagnose(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle /diagnose command by delegating to agent."""
+        if not update.message or not update.effective_user:
+            return
+        await update.message.reply_text("已收到。正在基于近期失败事件进行诊断。")
+        user = update.effective_user
+        sender_id = str(user.id)
+        if user.username:
+            sender_id = f"{sender_id}|{user.username}"
+        await self._handle_message(
+            sender_id=sender_id,
+            chat_id=str(update.message.chat_id),
+            content="请读取近期失败事件并给出：根因、影响范围、修复步骤、是否需要我确认的动作。",
+            session_key_override=self._session_service.get_active_session_key(str(update.message.chat_id)),
+            metadata={"from_command": "diagnose"},
         )
 
     async def _on_new(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

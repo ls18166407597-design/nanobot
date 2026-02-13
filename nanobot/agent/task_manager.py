@@ -17,11 +17,29 @@ class Task:
         description: str,
         command: str,
         created_at: Optional[str] = None,
+        status: str = "idle",
+        run_count: int = 0,
+        success_count: int = 0,
+        failure_count: int = 0,
+        retry_count: int = 0,
+        last_run_at: Optional[str] = None,
+        last_success_at: Optional[str] = None,
+        last_error: Optional[str] = None,
+        last_duration_ms: Optional[int] = None,
     ):
         self.name = name
         self.description = description
         self.command = command
         self.created_at = created_at or datetime.now().isoformat()
+        self.status = status
+        self.run_count = run_count
+        self.success_count = success_count
+        self.failure_count = failure_count
+        self.retry_count = retry_count
+        self.last_run_at = last_run_at
+        self.last_success_at = last_success_at
+        self.last_error = last_error
+        self.last_duration_ms = last_duration_ms
     
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -29,6 +47,15 @@ class Task:
             "description": self.description,
             "command": self.command,
             "created_at": self.created_at,
+            "status": self.status,
+            "run_count": self.run_count,
+            "success_count": self.success_count,
+            "failure_count": self.failure_count,
+            "retry_count": self.retry_count,
+            "last_run_at": self.last_run_at,
+            "last_success_at": self.last_success_at,
+            "last_error": self.last_error,
+            "last_duration_ms": self.last_duration_ms,
         }
     
     @classmethod
@@ -38,6 +65,15 @@ class Task:
             description=data["description"],
             command=data["command"],
             created_at=data.get("created_at"),
+            status=data.get("status", "idle"),
+            run_count=int(data.get("run_count", 0) or 0),
+            success_count=int(data.get("success_count", 0) or 0),
+            failure_count=int(data.get("failure_count", 0) or 0),
+            retry_count=int(data.get("retry_count", 0) or 0),
+            last_run_at=data.get("last_run_at"),
+            last_success_at=data.get("last_success_at"),
+            last_error=data.get("last_error"),
+            last_duration_ms=data.get("last_duration_ms"),
         )
 
 
@@ -94,6 +130,37 @@ class TaskManager:
         self._save()
         logger.info(f"Created task: {name}")
         return task
+
+    def mark_running(self, name: str, *, retry: bool = False) -> bool:
+        """Mark task as running/retrying."""
+        task = self.tasks.get(name)
+        if not task:
+            return False
+        task.status = "retrying" if retry else "running"
+        task.run_count += 1
+        if retry:
+            task.retry_count += 1
+        task.last_run_at = datetime.now().isoformat()
+        self._save()
+        return True
+
+    def mark_result(self, name: str, *, success: bool, error: str | None = None, duration_ms: int | None = None) -> bool:
+        """Mark task execution result."""
+        task = self.tasks.get(name)
+        if not task:
+            return False
+        if success:
+            task.status = "completed"
+            task.success_count += 1
+            task.last_success_at = datetime.now().isoformat()
+            task.last_error = None
+        else:
+            task.status = "failed"
+            task.failure_count += 1
+            task.last_error = (error or "").strip()[:1000] or None
+        task.last_duration_ms = duration_ms
+        self._save()
+        return True
     
     def get(self, name: str) -> Optional[Task]:
         """Get a task by name."""

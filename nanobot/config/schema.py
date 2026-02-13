@@ -142,7 +142,7 @@ class MCPToolsConfig(BaseModel):
 class ToolPolicyConfig(BaseModel):
     """Tool routing policy configuration."""
 
-    web_default: str = "tavily"  # tavily | duckduckgo | browser
+    web_default: str = "tavily"  # tavily | browser
     intent_rules: list[dict[str, Any]] = Field(
         default_factory=lambda: [
             {"capability": "code_hosting", "keywords": ["github", "issue", "pr", "repo", "commit"]},
@@ -167,6 +167,31 @@ class ToolPolicyConfig(BaseModel):
     )
 
 
+class FileWritePolicyConfig(BaseModel):
+    """Filesystem write governance for AI-initiated edits."""
+
+    enabled: bool = True
+    require_confirm_for_controlled: bool = True
+    read_only_patterns: list[str] = Field(
+        default_factory=lambda: [
+            "workspace/IDENTITY.md",
+            "workspace/AGENTS.md",
+            ".home/config.json",
+            "nanobot/config/*.py",
+        ]
+    )
+    controlled_patterns: list[str] = Field(
+        default_factory=lambda: [
+            "workspace/TOOLS.md",
+            "workspace/USER.md",
+            "docs/*.md",
+            "docs/**/*.md",
+            "README.md",
+            "README_EN.md",
+        ]
+    )
+
+
 class ToolsConfig(BaseModel):
     """Tools configuration."""
 
@@ -175,6 +200,7 @@ class ToolsConfig(BaseModel):
     mac: MacToolsConfig = Field(default_factory=MacToolsConfig)
     mcp: MCPToolsConfig = Field(default_factory=MCPToolsConfig)
     policy: ToolPolicyConfig = Field(default_factory=ToolPolicyConfig)
+    file_write_policy: FileWritePolicyConfig = Field(default_factory=FileWritePolicyConfig)
     restrict_to_workspace: bool = False  # If true, restrict all tool access to workspace directory
     error_fallback_channel: str = "cli"  # Fallback channel when system message has no origin
     error_fallback_chat_id: str = "direct"  # Fallback chat_id when system message has no origin

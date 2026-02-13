@@ -16,9 +16,9 @@
 ### 2. 信息调研闭环
 **策略**: 处理复杂调研任务时：
 1. 先用 `tavily(action="search")` 做快速检索（默认）。
-2. 失败时自动回退到 `duckduckgo(action="search")`。
+2. 失败时回退到 `browser(action="search"|"browse")`。
 3. 需要深度摘要时，用 `tavily(action="research")`。
-4. 遇到页面渲染/交互/登录态/强反爬时，切到 `browser(action="search"|"browse")`。
+4. 遇到页面渲染/交互/登录态/强反爬时，优先 `browser(action="search"|"browse")`。
 5. `edit_file(...)`: 持续将结论增量写入 `workspace/report.md`。
 6. **输出**: 给出结论时首行标注 `查询来源: ...`，并附文档路径。
 
@@ -33,7 +33,6 @@
 
 | **类别** | **工具** | **描述** | **启动命令 (npx)** |
 |---|---|---|---|
-| **搜索** | **DuckDuckGo** | **国内友好**。无需信用卡，无需 Token，隐私保护。 | `npx -y @nickclyde/duckduckgo-mcp-server` |
 | **地图** | **Baidu / Amap** | **国内最准**。支持经纬度、路线规划、周边搜索。 | `@baidumap/mcp-server-baidu-map` |
 | **出行** | **12306 MCP** | 全国火车票余票、票价及经停站查询。 | `npx -y 12306-mcp` |
 | **自动化** | **Puppeteer** | **超级浏览器**。具备点击、填表、截图能力。 | `npx -y @modelcontextprotocol/server-puppeteer` |
@@ -50,7 +49,7 @@
 
 ## 🏗️ 技术解读：MCP 在本项目中的定位
 当前项目采用“**工具封装优先**”策略：
-1. 模型优先调用项目内工具（如 `github`、`train_ticket`、`duckduckgo`）。
+1. 模型优先调用项目内工具（如 `github`、`train_ticket`、`tavily`、`browser`）。
 2. 这些工具在内部调用 MCP server，MCP 作为后端能力层。
 3. 默认不向模型暴露通用 `mcp` 工具，避免参数漂移和协议误用。
 - **静默机制**: 仅对无副作用的维护任务（如 RAG 向量化）使用 `SILENT_REPLY_TOKEN`。

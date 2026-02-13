@@ -3,6 +3,7 @@ Task Tool - Agent interface for task management
 """
 import os
 import shlex
+import time
 from pathlib import Path
 from typing import Any
 from loguru import logger
@@ -111,6 +112,9 @@ class TaskTool(Tool):
         
         try:
             normalized_command = self._normalize_command(command)
+            save_error = self._validate_command_for_save(normalized_command)
+            if save_error:
+                return ToolResult(success=False, output=f"❌ 任务创建失败: {save_error}")
             task = self._manager.create(name=name, description=description, command=normalized_command)
             return ToolResult(success=True, output=f"✅ 已创建任务 '{task.name}'\n📝 描述: {task.description}\n💻 命令: {task.command}")
         except ValueError as e:
@@ -142,10 +146,13 @@ class TaskTool(Tool):
         task = self._manager.get(name)
         if not task:
             return ToolResult(success=False, output=f"❌ 任务 '{name}' 不存在")
-        
+
         logger.info(f"Executing task '{name}': {task.command}")
+        self._manager.mark_running(name, retry=(task.status == "failed"))
+        start = time.time()
         preflight_error = self._preflight_command(task.command)
         if preflight_error:
+            self._manager.mark_result(name, success=False, error=preflight_error, duration_ms=int((time.time() - start) * 1000))
             return ToolResult(success=False, output=f"❌ 执行前检查失败: {preflight_error}")
         
         # Execute the command using ExecTool
@@ -165,11 +172,18 @@ class TaskTool(Tool):
             
             # ExecTool.execute returns ToolResult
             if isinstance(result, ToolResult):
+                self._manager.mark_result(
+                    name,
+                    success=bool(result.success),
+                    error=None if result.success else str(result.output),
+                    duration_ms=int((time.time() - start) * 1000),
+                )
                 result.output = f"🚀 执行任务 '{name}':\n\n{result.output}"
                 return result
-            
+            self._manager.mark_result(name, success=True, duration_ms=int((time.time() - start) * 1000))
             return ToolResult(success=True, output=f"🚀 执行任务 '{name}':\n\n{result}")
         except Exception as e:
+            self._manager.mark_result(name, success=False, error=str(e), duration_ms=int((time.time() - start) * 1000))
             return ToolResult(success=False, output=f"❌ 执行失败: {str(e)}")
     
     def _delete(self, name: str | None) -> ToolResult:
@@ -196,7 +210,10 @@ class TaskTool(Tool):
             f"名称: {task.name}\n"
             f"描述: {task.description}\n"
             f"命令: {task.command}\n"
-            f"创建时间: {task.created_at}"
+            f"创建时间: {task.created_at}\n"
+            f"状态: {task.status}\n"
+            f"运行统计: run={task.run_count}, ok={task.success_count}, fail={task.failure_count}, retry={task.retry_count}\n"
+            f"最近错误: {task.last_error or '-'}"
         ))
     
     def _update(self, name: str | None, description: str | None, command: str | None) -> ToolResult:
@@ -206,8 +223,12 @@ class TaskTool(Tool):
         
         if not description and not command:
             return ToolResult(success=False, output="❌ Error: at least one of 'description' or 'command' is required for update")
-        
+
         normalized_command = self._normalize_command(command) if command else None
+        if normalized_command:
+            save_error = self._validate_command_for_save(normalized_command)
+            if save_error:
+                return ToolResult(success=False, output=f"❌ 任务更新失败: {save_error}")
         if self._manager.update(name, description=description, command=normalized_command):
             return ToolResult(success=True, output=f"✅ 已更新任务 '{name}'")
         else:
@@ -273,4 +294,20 @@ class TaskTool(Tool):
             p = Path.cwd() / p
         if not p.exists():
             return f"脚本不存在: {script}"
+        return None
+
+    def _validate_command_for_save(self, command: str) -> str | None:
+        """
+        Validate task command at create/update time to reduce delayed runtime failures.
+        """
+        cmd = (command or "").strip()
+        if not cmd:
+            return "命令不能为空"
+        err = self._preflight_command(cmd)
+        if err:
+            return err
+        # Hard fail obvious placeholders that frequently appear in broken auto-generated tasks.
+        placeholders = ("<your_", "{path}", "{command}", "TODO")
+        if any(p in cmd for p in placeholders):
+            return "命令包含未替换占位符，请提供可直接执行的真实命令"
         return None

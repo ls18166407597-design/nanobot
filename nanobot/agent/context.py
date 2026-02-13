@@ -12,6 +12,7 @@ from typing import Any
 from nanobot.agent.memory import MemoryStore
 from nanobot.agent.skills import SkillsLoader
 from nanobot.providers.adapters import ModelAdapter
+from nanobot.runtime.failures import summarize_recent_failures
 
 SILENT_REPLY_TOKEN = "SILENT_REPLY_TOKEN"
 
@@ -88,6 +89,13 @@ class ContextBuilder:
 如果你需要使用以下技能，请先使用 `read_file` 读取对应的 `SKILL.md` 文件了解具体用法。
 
 {skills_summary}""")
+
+        failures = summarize_recent_failures(limit=5)
+        parts.append(
+            "# 运行态故障观察\n\n"
+            "以下为近期系统失败事件（用于避免重复错误、优先诊断根因）：\n"
+            f"{failures}"
+        )
 
         return "\n\n---\n\n".join(parts)
 

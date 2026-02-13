@@ -46,6 +46,17 @@ NANOBOT_HOME=/Users/liusong/Downloads/nanobot/.home \
 - `workspace/skills/mail/scripts/mark_gmail_read.py`
 - `workspace/skills/mail/scripts/mark_qq_read.py`
 
+## memory（记忆维护）
+
+入口脚本：
+- `memory/reflector.py`
+
+示例：
+```bash
+NANOBOT_HOME=/Users/liusong/Downloads/nanobot/.home \
+.venv/bin/python workspace/scripts/memory/reflector.py
+```
+
 ## telegram（Telegram 自动化）
 
 入口脚本：

@@ -8,8 +8,8 @@ from typing import Any
 class ToolPolicy:
     """Decide which tools should be exposed to the model in current iteration."""
 
-    WEB_TOOLS = {"tavily", "duckduckgo", "browser"}
-    VALID_WEB_DEFAULT = {"tavily", "duckduckgo", "browser"}
+    WEB_TOOLS = {"tavily", "browser"}
+    VALID_WEB_DEFAULT = {"tavily", "browser"}
 
     def __init__(
         self,
@@ -88,7 +88,7 @@ class ToolPolicy:
 
         allow_web: set[str] = set()
         if browser_needed:
-            for candidate in ("browser", "tavily", "duckduckgo"):
+            for candidate in ("browser", "tavily"):
                 if candidate in web_present and candidate not in failed_tools:
                     allow_web.add(candidate)
                     break
@@ -100,7 +100,7 @@ class ToolPolicy:
                     break
 
         if not allow_web:
-            for n in ("tavily", "duckduckgo", "browser"):
+            for n in ("tavily", "browser"):
                 if n in web_present:
                     allow_web.add(n)
                     break
@@ -175,13 +175,11 @@ class ToolPolicy:
                     return content
         return ""
 
-    def _search_priority_order(self) -> tuple[str, str, str]:
-        # Desired default priority: tavily -> duckduckgo -> browser.
-        if self.web_default == "duckduckgo":
-            return ("duckduckgo", "tavily", "browser")
+    def _search_priority_order(self) -> tuple[str, str]:
+        # Desired default priority: tavily -> browser.
         if self.web_default == "browser":
-            return ("browser", "tavily", "duckduckgo")
-        return ("tavily", "duckduckgo", "browser")
+            return ("browser", "tavily")
+        return ("tavily", "browser")
 
     def _needs_browser(self, text: str) -> bool:
         keywords = (

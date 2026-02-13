@@ -16,6 +16,8 @@ from loguru import logger
 from nanobot.agent.context import SILENT_REPLY_TOKEN, ContextBuilder
 from nanobot.agent.context_guard import ContextGuard, TokenCounter
 from nanobot.agent.executor import ToolExecutor
+from nanobot.agent.failure_types import FailureEvent, FailureSeverity
+from nanobot.agent.incident_manager import IncidentManager
 from nanobot.agent.message_flow import MessageFlowCoordinator
 from nanobot.agent.models import ModelRegistry
 from nanobot.agent.provider_router import ProviderRouter
@@ -90,7 +92,16 @@ class AgentLoop:
         self.sessions = SessionManager(workspace)
         self.tools = ToolRegistry()
         self.hook_registry = HookRegistry()
-        self.executor = ToolExecutor(self.tools, hook_registry=self.hook_registry)
+        self.incident_manager = IncidentManager(
+            dedupe_window_seconds=max(300, int(getattr(self.brain_config, "incident_dedupe_window_seconds", 1800))),
+            escalate_threshold=max(2, int(getattr(self.brain_config, "incident_escalate_threshold", 3))),
+            on_decision=self._on_incident_decision,
+        )
+        self.executor = ToolExecutor(
+            self.tools,
+            hook_registry=self.hook_registry,
+            incident_manager=self.incident_manager,
+        )
         self.turn_engine = TurnEngine(
             context=self.context,
             executor=self.executor,
@@ -150,6 +161,8 @@ class AgentLoop:
         )
 
         self._running = False
+        self._incident_notified: set[str] = set()
+        self._incident_escalated: set[str] = set()
         self._register_default_tools()
 
     async def _populate_registry(self, providers: "ProvidersConfig") -> None:
@@ -257,12 +270,38 @@ class AgentLoop:
         """
         async def task():
             try:
+                self.executor.set_runtime_context(
+                    channel=msg.channel,
+                    chat_id=msg.chat_id,
+                    trace_id=msg.trace_id,
+                )
                 response = await self._inner_process_message(msg)
                 if response:
                     await self.bus.publish_outbound(response)
             except Exception as e:
                 logger.error(f"Error processing message in queue: {e}")
+                try:
+                    self.incident_manager.report(
+                        FailureEvent(
+                            source="agent",
+                            category="turn_error",
+                            summary="消息处理失败",
+                            severity=FailureSeverity.ERROR,
+                            retryable=True,
+                            details={
+                                "channel": msg.channel,
+                                "chat_id": msg.chat_id,
+                                "trace_id": msg.trace_id,
+                                "error_type": type(e).__name__,
+                                "reason": "message_wrapper_exception",
+                            },
+                        )
+                    )
+                except Exception:
+                    pass
                 await self.bus.publish_outbound(self.message_flow.build_error_outbound(msg, e))
+            finally:
+                self.executor.clear_runtime_context()
 
         lane = self.message_flow.lane_for(msg)
         await self.message_flow.maybe_send_busy_notice(msg, lane)
@@ -305,6 +344,67 @@ class AgentLoop:
 
     async def _process_system_message(self, msg: InboundMessage) -> OutboundMessage | None:
         return await self.system_turn_service.process(msg)
+
+    def _on_incident_decision(self, event: FailureEvent, decision: Any) -> None:
+        if event.category == "turn_error":
+            return
+        if not bool(getattr(decision, "should_notify_user", False)):
+            return
+        if not bool(getattr(decision, "should_escalate", False)):
+            return
+        fp = str(getattr(decision, "fingerprint", "") or "")
+        if not fp:
+            return
+        if fp in self._incident_notified and fp in self._incident_escalated:
+            return
+        details = event.details or {}
+        channel = str(details.get("channel") or "").strip()
+        chat_id = str(details.get("chat_id") or "").strip()
+        if not channel or not chat_id:
+            return
+
+        count = int(getattr(decision, "count_in_window", 1) or 1)
+        content = self._format_incident_notification(event, decision, count, escalated=True)
+        self._incident_escalated.add(fp)
+        self._incident_notified.add(fp)
+        try:
+            asyncio.create_task(
+                self.bus.publish_outbound(
+                    OutboundMessage(channel=channel, chat_id=chat_id, content=content)
+                )
+            )
+        except Exception as e:
+            logger.debug(f"Failed to publish incident notification: {e}")
+
+    def _format_incident_notification(
+        self, event: FailureEvent, decision: Any, count: int, escalated: bool
+    ) -> str:
+        incident_id = str(getattr(decision, "fingerprint", "") or "")[:8] or "unknown"
+        source = f"{event.source}/{event.category}"
+        mode_text = "系统告警" if escalated else "系统提示"
+        severity_text = str(getattr(event, "severity", "error"))
+        retry_text = "是" if bool(getattr(event, "retryable", False)) else "否"
+        action = self._incident_action_hint(event, escalated=escalated)
+        return (
+            f"{mode_text}：同类故障已出现 {count} 次。\n"
+            f"故障编号：{incident_id}\n"
+            f"来源：{source}\n"
+            f"级别：{severity_text}\n"
+            f"自动重试：{retry_text}\n"
+            f"摘要：{event.summary}\n"
+            f"建议：{action}"
+        )
+
+    def _incident_action_hint(self, event: FailureEvent, escalated: bool) -> str:
+        if not escalated and bool(getattr(event, "retryable", False)):
+            return "系统会继续自动恢复，请稍后观察结果。"
+        if event.category in {"job_execute_error", "task_run", "task_execute_error"}:
+            return "请检查任务命令、依赖环境和执行权限。"
+        if event.category in {"tool_failed", "tool_executor_exception"}:
+            return "请调整指令或参数；如持续失败，建议人工介入排查。"
+        if escalated:
+            return "该问题已达到升级阈值，建议尽快人工检查。"
+        return "系统已记录该问题，将继续尝试恢复。"
 
     async def process_direct(
         self,

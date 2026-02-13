@@ -1,4 +1,5 @@
 from typing import Callable
+import re
 
 from loguru import logger
 
@@ -69,7 +70,11 @@ class UserTurnService:
             final_content = "我已经完成了处理，但暂时没有需要回复的具体内容。"
 
         final_content = self.filter_reasoning(str(final_content))
-        final_content = self._add_query_source_line(final_content, msg.trace_id)
+        used_tools = self._pop_used_tools(msg.trace_id)
+        exec_report = self._pop_execution_report(msg.trace_id)
+        final_content = self._remove_unexecuted_tool_claims(final_content, used_tools)
+        final_content = self._enforce_execution_truth(final_content, exec_report)
+        final_content = self._add_query_source_line(final_content, used_tools)
         if final_content.strip() == "":
             final_content = "本次未产出有效结果，可能模型或工具链暂时不可用。请重试一次。"
         session.add_message("user", msg.content)
@@ -87,20 +92,31 @@ class UserTurnService:
             trace_id=msg.trace_id,
         )
 
-    def _add_query_source_line(self, content: str, trace_id: str | None) -> str:
-        if "查询来源:" in content:
-            return content
+    def _pop_used_tools(self, trace_id: str | None) -> list[str]:
         pop_fn = getattr(self.turn_engine, "pop_used_tools", None)
         if not callable(pop_fn):
-            return content
-        tools = pop_fn(trace_id)
+            return []
+        return pop_fn(trace_id)
+
+    def _pop_execution_report(self, trace_id: str | None) -> dict:
+        pop_fn = getattr(self.turn_engine, "pop_execution_report", None)
+        if not callable(pop_fn):
+            return {}
+        report = pop_fn(trace_id)
+        return report if isinstance(report, dict) else {}
+
+    def _add_query_source_line(self, content: str, tools: list[str]) -> str:
+        body = self._strip_source_headers(content)
         if not tools:
-            return content
+            return body
         source_map = {
             "train_ticket": "12306",
             "github": "GitHub",
             "tavily": "Tavily API",
-            "duckduckgo": "DuckDuckGo",
+            "mcp:amap": "高德地图",
+            "mcp:12306": "12306",
+            "mcp:github": "GitHub",
+            "mcp:puppeteer": "Browser",
             "browser": "Browser",
             "weather": "和风天气 API",
             "tianapi": "天行 API",
@@ -112,5 +128,68 @@ class UserTurnService:
             if src and src not in sources:
                 sources.append(src)
         if not sources:
+            return body
+        return f"查询来源: {' + '.join(sources)}\n\n{body}"
+
+    def _strip_source_headers(self, content: str) -> str:
+        """
+        Keep source headers system-owned:
+        - Drop model-generated '查询来源:' and '联网策略:' lines.
+        - The final '查询来源:' is injected only from actual used tools.
+        """
+        lines = content.splitlines()
+        normalized: list[str] = []
+        for line in lines:
+            if re.match(r"^\s*查询来源\s*:", line):
+                continue
+            if re.match(r"^\s*联网策略\s*:", line):
+                continue
+            normalized.append(line)
+        return "\n".join(normalized).strip()
+
+    def _remove_unexecuted_tool_claims(self, content: str, used_tools: list[str]) -> str:
+        """Drop lines that claim using tools not present in this turn's execution record."""
+        used = set(used_tools or [])
+        tool_aliases = {
+            "tavily": ("tavily", "Tavily"),
+            "browser": ("browser", "浏览器"),
+            "github": ("github", "GitHub"),
+            "train_ticket": ("12306", "train_ticket"),
+            "amap": ("高德", "amap"),
+        }
+        claim_markers = ("我用", "使用了", "调用了", "测试了", "刚才", "本次")
+        kept: list[str] = []
+        for line in content.splitlines():
+            drop = False
+            for tool_name, aliases in tool_aliases.items():
+                if tool_name in used or f"mcp:{tool_name}" in used:
+                    continue
+                if any(a in line for a in aliases) and any(m in line for m in claim_markers):
+                    drop = True
+                    break
+            if not drop:
+                kept.append(line)
+        return "\n".join(kept).strip()
+
+    def _enforce_execution_truth(self, content: str, report: dict) -> str:
+        total = int(report.get("total_tool_calls", 0) or 0)
+        success = int(report.get("success_tool_calls", 0) or 0)
+        failed = int(report.get("failed_tool_calls", 0) or 0)
+        if total <= 0:
             return content
-        return f"查询来源: {' + '.join(sources)}\n\n{content}"
+
+        text = (content or "").strip()
+        completion_claim = re.search(r"(已完成|已经完成|处理完成|执行完成|已处理完)", text)
+        if success == 0:
+            # 所有工具均失败时，禁止“已完成”话术，避免对用户造成误导。
+            return (
+                f"本次尝试调用了 {total} 次工具，但均未成功执行，当前无法确认任务已完成。\n"
+                "请允许我调整方案后重试，或你提供更明确的参数/权限范围。"
+            )
+
+        if completion_claim and failed > 0:
+            return (
+                f"{text}\n\n"
+                f"执行说明：本轮工具调用共 {total} 次，成功 {success} 次，失败 {failed} 次。"
+            )
+        return text

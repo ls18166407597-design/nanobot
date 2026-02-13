@@ -10,6 +10,8 @@ from typing import Any, Callable, Coroutine
 
 from loguru import logger
 
+from nanobot.agent.failure_types import FailureEvent, FailureSeverity
+from nanobot.agent.incident_manager import IncidentManager
 from nanobot.cron.types import CronJob, CronJobState, CronPayload, CronSchedule, CronStore
 
 
@@ -52,10 +54,12 @@ class CronService:
         store_path: Path,
         on_job: Callable[[CronJob], Coroutine[Any, Any, str | None]] | None = None,
         default_tz: str = "Asia/Shanghai",
+        incident_manager: IncidentManager | None = None,
     ):
         self.store_path = store_path
         self.on_job = on_job  # Callback to execute job, returns response text
         self.default_tz = default_tz
+        self.incident_manager = incident_manager
         self._store: CronStore | None = None
         self._timer_task: asyncio.Task | None = None
         self._running = False
@@ -261,6 +265,20 @@ class CronService:
         except Exception as e:
             job.state.last_status = "error"
             job.state.last_error = str(e)
+            self._report_incident(
+                FailureEvent(
+                    source="cron",
+                    category="job_execute_error",
+                    summary=f"Cron 作业失败: {job.name}",
+                    severity=FailureSeverity.ERROR,
+                    retryable=True,
+                    details={
+                        "job_id": job.id,
+                        "reason": "job_execute_exception",
+                        "error_type": type(e).__name__,
+                    },
+                )
+            )
             logger.error(f"Cron: job '{job.name}' failed: {e}")
 
         job.state.last_run_at_ms = start_ms
@@ -276,6 +294,14 @@ class CronService:
         else:
             # Compute next run
             job.state.next_run_at_ms = _compute_next_run(job.schedule, _now_ms(), self.default_tz)
+
+    def _report_incident(self, event: FailureEvent) -> None:
+        if self.incident_manager is None:
+            return
+        try:
+            self.incident_manager.report(event)
+        except Exception as e:
+            logger.debug(f"Cron incident report ignored error: {e}")
 
     # ========== Public API ==========
 

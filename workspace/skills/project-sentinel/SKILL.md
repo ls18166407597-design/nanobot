@@ -35,6 +35,10 @@ bash nanobot/scripts/safe_push.sh "your commit message"
 bash nanobot/scripts/secret_scanner.sh
 ```
 
+### 4. 任务规划 (`plan-task`)
+在执行复杂任务前，使用 `PLANNER_TEMPLATE.md` 生成执行计划。
+- **用法**: 读取 `PLANNER_TEMPLATE.md`，根据当前需求填充内容，并向老板展示确认。
+
 ---
 
 ## 🛡️ 指导原则

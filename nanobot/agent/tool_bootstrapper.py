@@ -4,11 +4,11 @@ import json
 from pathlib import Path
 from typing import Any
 
+from nanobot.agent.file_write_policy import FileWritePolicy
 from nanobot.agent.task_manager import TaskManager
 from nanobot.agent.tools.browser import BrowserTool
 from nanobot.agent.tools.amap import AmapTool
 from nanobot.agent.tools.cron import CronTool
-from nanobot.agent.tools.duckduckgo import DuckDuckGoTool
 from nanobot.agent.tools.feishu import FeishuTool
 from nanobot.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
 from nanobot.agent.tools.github import GitHubTool
@@ -24,6 +24,7 @@ from nanobot.agent.tools.provider import ProviderTool
 from nanobot.agent.tools.qq_mail import QQMailTool
 from nanobot.agent.tools.shell import ExecTool
 from nanobot.agent.tools.skills import SkillsTool
+from nanobot.agent.tools.system_status import SystemStatusTool
 from nanobot.agent.tools.task import TaskTool
 from nanobot.agent.tools.tavily import TavilyTool
 from nanobot.agent.tools.tianapi import TianAPITool
@@ -67,12 +68,21 @@ class ToolBootstrapper:
 
     def register_default_tools(self) -> None:
         allowed_dir = self.workspace if self.restrict_to_workspace else None
+        project_root = self.workspace.parent
+        wp_cfg = getattr(self.tools_config, "file_write_policy", None)
+        write_policy = FileWritePolicy(
+            project_root=project_root,
+            read_only_patterns=list(getattr(wp_cfg, "read_only_patterns", []) or []),
+            controlled_patterns=list(getattr(wp_cfg, "controlled_patterns", []) or []),
+            require_confirm_for_controlled=bool(getattr(wp_cfg, "require_confirm_for_controlled", True)),
+            enabled=bool(getattr(wp_cfg, "enabled", True)),
+        )
         if self._tool_enabled("read_file"):
-            self.tools.register(ReadFileTool(allowed_dir=allowed_dir))
+            self.tools.register(ReadFileTool(allowed_dir=allowed_dir, write_policy=write_policy))
         if self._tool_enabled("write_file"):
-            self.tools.register(WriteFileTool(allowed_dir=allowed_dir))
+            self.tools.register(WriteFileTool(allowed_dir=allowed_dir, write_policy=write_policy))
         if self._tool_enabled("edit_file"):
-            self.tools.register(EditFileTool(allowed_dir=allowed_dir))
+            self.tools.register(EditFileTool(allowed_dir=allowed_dir, write_policy=write_policy))
         if self._tool_enabled("list_dir"):
             self.tools.register(ListDirTool(allowed_dir=allowed_dir))
 
@@ -125,6 +135,8 @@ class ToolBootstrapper:
             self.tools.register(KnowledgeTool())
         if self._tool_enabled("memory"):
             self.tools.register(MemoryTool(workspace=self.workspace))
+        if self._tool_enabled("system_status"):
+            self.tools.register(SystemStatusTool())
         if self._tool_enabled("provider"):
             self.tools.register(ProviderTool(registry=self.model_registry))
         if (
@@ -143,8 +155,6 @@ class ToolBootstrapper:
             self.tools.register(WeatherTool())
         if self._tool_enabled("tavily"):
             self.tools.register(TavilyTool())
-        if self._tool_enabled("duckduckgo"):
-            self.tools.register(DuckDuckGoTool())
         if self._tool_enabled("tianapi"):
             self.tools.register(TianAPITool())
         if self._tool_enabled("tushare"):

@@ -16,9 +16,10 @@
 ## 工具路由
 1. 工具选择遵循系统运行时策略（ToolPolicy），不要在同一子问题并行混用多个同类工具。
 2. 专用工具优先（如 `train_ticket`、`github`、`weather`、`mail`），通用联网工具作为兜底。
-3. 涉及联网时在结果首行标注：`查询来源: ...`。
-4. 来源标注优先写业务来源，不强调后端实现细节（例如写 `12306`、`GitHub`，而非 `MCP`）。
-5. 凡是写入 `task/cron` 的命令，必须是可独立运行的一条命令（优先 `workspace/skills/*/scripts/*.py` 或 `workspace/scripts/*.py`），不得依赖 `nanobot/agent/tools` 等内部导入路径。
+3. 来源标注优先写业务来源，不强调后端实现细节（例如写 `12306`、`GitHub`，而非 `MCP`）。
+4. 凡是写入 `task/cron` 的命令，必须是可独立运行的一条命令（优先 `workspace/skills/*/scripts/*.py` 或 `workspace/scripts/*.py`），不得依赖 `nanobot/agent/tools` 等内部导入路径。
+5. 用户明确点名工具时优先按用户指定执行；若该工具失败需要降级到其他工具，必须先说明“已尝试 X 失败，改用 Y”。
+6. 工作区文件写入必须落到明确业务目录（如 `workspace/scripts/*`、`workspace/skills/*`、`workspace/memory/*`）；禁止在 `workspace/` 根目录和 `workspace/scripts/` 根目录落临时文件。
 
 ## 屏幕识别
 1. 先 `mac_vision`。

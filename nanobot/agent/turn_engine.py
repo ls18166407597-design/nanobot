@@ -57,6 +57,7 @@ class TurnEngine:
         self.hook_registry = hook_registry
         self.tool_policy = tool_policy or ToolPolicy()
         self._trace_tools: dict[str, list[str]] = {}
+        self._trace_exec_report: dict[str, dict[str, Any]] = {}
 
     async def run(
         self,
@@ -80,6 +81,8 @@ class TurnEngine:
         deadline = time.monotonic() + float(self.max_turn_seconds)
         failed_tools: set[str] = set()
         used_tools: list[str] = []
+        success_tool_calls = 0
+        failed_tool_calls = 0
 
         while iteration < self.max_iterations:
             if time.monotonic() >= deadline:
@@ -263,8 +266,17 @@ class TurnEngine:
                 for tc in tool_calls
             ]
             for tc in tool_calls:
-                if tc.name not in used_tools:
-                    used_tools.append(tc.name)
+                tool_key = tc.name
+                # Preserve MCP server dimension so source attribution can be specific.
+                if tc.name == "mcp":
+                    try:
+                        server = str((tc.arguments or {}).get("server", "")).strip()
+                    except Exception:
+                        server = ""
+                    if server:
+                        tool_key = f"mcp:{server}"
+                if tool_key not in used_tools:
+                    used_tools.append(tool_key)
             self.context.add_assistant_message(messages, response.content, tool_call_dicts)
             tool_exec_results = await self._execute_tool_calls(
                 messages=messages,
@@ -276,8 +288,10 @@ class TurnEngine:
             for name, success in tool_exec_results:
                 if success:
                     failed_tools.discard(name)
+                    success_tool_calls += 1
                 else:
                     failed_tools.add(name)
+                    failed_tool_calls += 1
             total_tool_calls += len(tool_calls)
             for tc in tool_calls:
                 tool_call_counts[tc.name] = tool_call_counts.get(tc.name, 0) + 1
@@ -316,12 +330,27 @@ class TurnEngine:
             if len(self._trace_tools) > 200:
                 oldest = next(iter(self._trace_tools.keys()))
                 self._trace_tools.pop(oldest, None)
+            self._trace_exec_report[trace_id] = {
+                "total_tool_calls": int(total_tool_calls),
+                "success_tool_calls": int(success_tool_calls),
+                "failed_tool_calls": int(failed_tool_calls),
+                "used_tools": list(used_tools),
+                "failed_tools": sorted(list(failed_tools)),
+            }
+            if len(self._trace_exec_report) > 200:
+                oldest = next(iter(self._trace_exec_report.keys()))
+                self._trace_exec_report.pop(oldest, None)
         return final_content
 
     def pop_used_tools(self, trace_id: str | None) -> list[str]:
         if not trace_id:
             return []
         return self._trace_tools.pop(trace_id, [])
+
+    def pop_execution_report(self, trace_id: str | None) -> dict[str, Any]:
+        if not trace_id:
+            return {}
+        return self._trace_exec_report.pop(trace_id, {})
 
     async def _trigger_hook(self, event: str, payload: dict[str, Any]) -> None:
         if self.hook_registry is None:
