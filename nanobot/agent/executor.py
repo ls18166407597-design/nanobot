@@ -1,13 +1,15 @@
 import json
 import time
 import traceback
-from typing import Any, Dict, Set, Protocol
+from typing import Any, Dict, Protocol, Set
+
 from loguru import logger
 
 from nanobot.agent.failure_types import FailureEvent, FailureSeverity
-from nanobot.agent.loop_guard import tool_call_hash
 from nanobot.agent.incident_manager import IncidentManager
+from nanobot.agent.loop_guard import tool_call_hash
 from nanobot.agent.tools.base import Tool, ToolResult
+
 
 class ToolRegistryProtocol(Protocol):
     def get(self, name: str) -> Tool | None:
@@ -73,7 +75,7 @@ class ToolExecutor:
             "tool_before",
             {"tool": name, "params": params, "call_hash": call_hash},
         )
-        
+
         now = time.time()
         # 1. Repeat failure interception (Local Loop Protection) with TTL
         self._prune_failed(now)
@@ -112,7 +114,7 @@ class ToolExecutor:
 
             # The registry returns a ToolResult
             res = await self.registry.execute(name, params)
-            
+
             if not res.success:
                 # Track failed calls to prevent blind repeats (with capacity limit)
                 is_repeat_failure = call_hash in self._failed_meta
@@ -131,7 +133,7 @@ class ToolExecutor:
                 # 2. Refined Remedies (Heuristics)
                 # Ensure we pass the raw output string to refine_error
                 refined_msg = self._refine_error(name, params, res.output)
-                
+
                 # 3. Reflection Hinting (only on repeat failure or when remedy exists)
                 if is_repeat_failure or res.remedy:
                     res.output = (
@@ -161,11 +163,12 @@ class ToolExecutor:
                             "tool": name,
                             "reason": "tool_result_failed",
                             "error_type": str(getattr(res, "severity", "")),
+                            "call_hash": call_hash[:16],
                         },
                     )
                 )
                 return res
-            
+
             await self._trigger_hook(
                 "tool_after",
                 {
@@ -192,6 +195,7 @@ class ToolExecutor:
                         "tool": name,
                         "error_type": type(e).__name__,
                         "reason": "executor_exception",
+                        "call_hash": call_hash[:16],
                     },
                 )
             )
@@ -236,7 +240,7 @@ class ToolExecutor:
 
     def _refine_error(self, name: str, params: Dict[str, Any], raw_error: str) -> str:
         """Transform technical errors into AI-actionable instructions."""
-        
+
         error_lower = raw_error.lower()
 
         # File path resolution issues
@@ -280,17 +284,17 @@ class ToolExecutor:
         """Automatically coerce AI inputs to match schema types."""
         if not isinstance(params, dict):
             return params
-            
+
         properties = schema.get("properties", {})
         sanitized = params.copy()
-        
+
         for key, value in sanitized.items():
             if key not in properties:
                 continue
-                
+
             prop_schema = properties[key]
             expected_type = prop_schema.get("type")
-            
+
             # Case 1: Enum stabilization (The "list instead of string" issue)
             if "enum" in prop_schema:
                 # If it's a list but should be a string/member of enum, take the first item

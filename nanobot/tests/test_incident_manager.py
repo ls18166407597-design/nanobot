@@ -29,7 +29,7 @@ def test_incident_manager_transient_dedupes_user_notify(tmp_path, monkeypatch):
     assert items[0]["source"] == "tool_executor"
 
 
-def test_incident_manager_non_retryable_error_notifies_immediately(tmp_path, monkeypatch):
+def test_incident_manager_non_retryable_error_notifies_after_threshold(tmp_path, monkeypatch):
     monkeypatch.setenv("NANOBOT_HOME", str(tmp_path))
     mgr = IncidentManager(dedupe_window_seconds=3600, escalate_threshold=3)
     event = FailureEvent(
@@ -41,5 +41,35 @@ def test_incident_manager_non_retryable_error_notifies_immediately(tmp_path, mon
         details={"tool": "exec", "error_type": "PermissionError"},
     )
     d1 = mgr.report(event)
-    assert d1.should_notify_user is True
-    assert d1.should_escalate is True
+    d2 = mgr.report(event)
+    d3 = mgr.report(event)
+    assert d1.should_notify_user is False
+    assert d2.should_notify_user is False
+    assert d3.should_notify_user is True
+    assert d3.should_escalate is True
+
+
+def test_incident_fingerprint_splits_by_call_hash(tmp_path, monkeypatch):
+    monkeypatch.setenv("NANOBOT_HOME", str(tmp_path))
+    mgr = IncidentManager(dedupe_window_seconds=3600, escalate_threshold=2)
+    e1 = FailureEvent(
+        source="tool_executor",
+        category="tool_failed",
+        summary="工具调用失败: exec",
+        severity=FailureSeverity.ERROR,
+        retryable=False,
+        details={"tool": "exec", "reason": "tool_result_failed", "call_hash": "aaa111"},
+    )
+    e2 = FailureEvent(
+        source="tool_executor",
+        category="tool_failed",
+        summary="工具调用失败: exec",
+        severity=FailureSeverity.ERROR,
+        retryable=False,
+        details={"tool": "exec", "reason": "tool_result_failed", "call_hash": "bbb222"},
+    )
+    d1 = mgr.report(e1)
+    d2 = mgr.report(e2)
+    assert d1.count_in_window == 1
+    assert d2.count_in_window == 1
+    assert d1.fingerprint != d2.fingerprint

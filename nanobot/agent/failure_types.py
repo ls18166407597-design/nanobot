@@ -44,7 +44,7 @@ class FailureEvent:
 
     @staticmethod
     def _normalized_details(details: dict[str, Any]) -> dict[str, Any]:
-        keep = ["tool", "error_type", "error_code", "job_id", "task_name", "reason"]
+        keep = ["tool", "error_type", "error_code", "job_id", "task_name", "reason", "call_hash"]
         normalized: dict[str, Any] = {}
         for k in keep:
             if k in details and details[k] is not None:
@@ -52,4 +52,3 @@ class FailureEvent:
         if not normalized:
             normalized = {"raw_keys": sorted(list(details.keys()))[:10]}
         return normalized
-

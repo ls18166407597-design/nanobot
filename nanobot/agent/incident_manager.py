@@ -69,14 +69,9 @@ class IncidentManager:
             },
         )
 
-        # 用户通知策略：仅在“系统难以自愈”时触发
-        # 1) 非可重试 + 严重错误：立即升级
-        # 2) 可重试但持续失败：达到阈值后升级
+        # 用户通知策略：只在同类故障持续出现时通知，避免单次波动打扰。
         severe = event.severity in {FailureSeverity.ERROR, FailureSeverity.CRITICAL}
-        if severe and not event.retryable:
-            should_escalate = True
-        else:
-            should_escalate = severe and count >= self.escalate_threshold
+        should_escalate = severe and count >= self.escalate_threshold
         should_notify_user = should_escalate
 
         logger.warning(
