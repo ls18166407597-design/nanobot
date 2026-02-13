@@ -8,6 +8,7 @@ from nanobot.agent.tools.message import MessageTool
 from nanobot.bus.events import InboundMessage, OutboundMessage
 from nanobot.session.manager import Session
 from nanobot.session.manager import SessionManager
+from nanobot.agent.honesty import audit_and_mark_hallucinations
 
 
 class UserTurnService:
@@ -76,12 +77,27 @@ class UserTurnService:
         final_content = self.filter_reasoning(str(final_content))
         used_tools = self._pop_used_tools(msg.trace_id)
         exec_report = self._pop_execution_report(msg.trace_id)
-        final_content = self._remove_unexecuted_tool_claims(final_content, used_tools)
+
+        # 诚信审计：检测并标记动作幻觉 (Hallucination Policing)
+        all_tools_meta = self.tools.get_all_metadata() if hasattr(self.tools, "get_all_metadata") else []
+        final_content, hallucination_detected = audit_and_mark_hallucinations(
+            final_content, used_tools, all_tools_meta
+        )
+
         final_content = self._enforce_execution_truth(final_content, exec_report)
         final_content = self._add_query_source_line(final_content, used_tools)
+
         if final_content.strip() == "":
             final_content = "本次未产出有效结果，可能模型或工具链暂时不可用。请重试一次。"
+
         session.add_message("user", msg.content)
+
+        if hallucination_detected:
+            # 向会话注入纠偏反馈，防止模型在后续对话中基于幻觉事实进行推理
+            session.add_message(
+                "system",
+                "[诚信审计] 警告：你的上一条回复中包含了未实际执行的工具动作声明，已被内核物理拦截说明或标记为删除线。请根据 Tool 执行记录诚实汇报！"
+            )
 
         if self.is_silent_reply(final_content):
             self.sessions.save(session)
@@ -150,30 +166,6 @@ class UserTurnService:
                 continue
             normalized.append(line)
         return "\n".join(normalized).strip()
-
-    def _remove_unexecuted_tool_claims(self, content: str, used_tools: list[str]) -> str:
-        """Drop lines that claim using tools not present in this turn's execution record."""
-        used = set(used_tools or [])
-        tool_aliases = {
-            "tavily": ("tavily", "Tavily"),
-            "browser": ("browser", "浏览器"),
-            "github": ("github", "GitHub"),
-            "train_ticket": ("12306", "train_ticket"),
-            "amap": ("高德", "amap"),
-        }
-        claim_markers = ("我用", "使用了", "调用了", "测试了", "刚才", "本次")
-        kept: list[str] = []
-        for line in content.splitlines():
-            drop = False
-            for tool_name, aliases in tool_aliases.items():
-                if tool_name in used or f"mcp:{tool_name}" in used:
-                    continue
-                if any(a in line for a in aliases) and any(m in line for m in claim_markers):
-                    drop = True
-                    break
-            if not drop:
-                kept.append(line)
-        return "\n".join(kept).strip()
 
     def _enforce_execution_truth(self, content: str, report: dict) -> str:
         total = int(report.get("total_tool_calls", 0) or 0)

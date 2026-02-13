@@ -7,6 +7,7 @@ from nanobot.agent.tools.cron import CronTool
 from nanobot.agent.tools.message import MessageTool
 from nanobot.bus.events import InboundMessage, OutboundMessage
 from nanobot.session.manager import SessionManager
+from nanobot.agent.honesty import audit_and_mark_hallucinations
 
 
 class SystemTurnService:
@@ -67,7 +68,22 @@ class SystemTurnService:
             final_content = "Background task completed."
 
         final_content = self.filter_reasoning(str(final_content))
+        used_tools = self._pop_used_tools(msg.trace_id)
+
+        # 诚信审计：检测并标记动作幻觉 (Hallucination Policing)
+        all_tools_meta = self.tools.get_all_metadata() if hasattr(self.tools, "get_all_metadata") else []
+        final_content, hallucination_detected = audit_and_mark_hallucinations(
+            final_content, used_tools, all_tools_meta
+        )
+
         session.add_message("user", f"[System: {msg.sender_id}] {msg.content}")
+
+        if hallucination_detected:
+            # 向后台会话注入纠偏反馈
+            session.add_message(
+                "system",
+                "[诚信审计] 警告：你的上一条后台指令回复中包含了未实际执行的工具动作声明。请诚实汇报进度！"
+            )
 
         if self.is_silent_reply(final_content):
             self.sessions.save(session)
@@ -77,3 +93,9 @@ class SystemTurnService:
         self.sessions.save(session)
 
         return OutboundMessage(channel=origin.channel, chat_id=origin.chat_id, content=final_content)
+
+    def _pop_used_tools(self, trace_id: str | None) -> list[str]:
+        pop_fn = getattr(self.turn_engine, "pop_used_tools", None)
+        if not callable(pop_fn):
+            return []
+        return pop_fn(trace_id)

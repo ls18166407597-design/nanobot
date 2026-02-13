@@ -88,8 +88,9 @@
 - `nanobot/agent/origin_resolver.py::resolve_system_origin`
 - 规则：
 - `MessageFlowCoordinator` 负责 lane 选择、busy notice、防抖、错误回传路由。
-- `SystemTurnService` 负责 system channel 的 origin 解析、上下文构建、回合执行、会话持久化。
-- `UserTurnService` 负责 user channel 的会话压缩、上下文构建、回合执行、会话持久化。
+- `UserTurnService` 负责 user channel 的会话压缩、上下文构建、回合执行、诚信审计（Honesty Policing）、会话持久化。
+- `SystemTurnService` 负责 system channel 的 origin 解析、上下文构建、回合执行、诚信审计、会话持久化。
+- **诚信审计契约**：统一调用 `nanobot/agent/honesty.py`，负责检测动作幻觉、显式标记（删除线）并注入纠偏反馈。
 - `AgentLoop` 只做编排，不重复实现上述策略逻辑。
 
 ## 5. 变更门禁 (Change Gate)
