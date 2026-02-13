@@ -74,6 +74,15 @@ class ToolBootstrapper:
             project_root=project_root,
             read_only_patterns=list(getattr(wp_cfg, "read_only_patterns", []) or []),
             controlled_patterns=list(getattr(wp_cfg, "controlled_patterns", []) or []),
+            workspace_root=self.workspace,
+            allow_workspace_root_files=[
+                "AGENTS.md",
+                "IDENTITY.md",
+                "TOOLS.md",
+                "USER.md",
+                "PROFILE.md",
+                "HEARTBEAT.md",
+            ],
             require_confirm_for_controlled=bool(getattr(wp_cfg, "require_confirm_for_controlled", True)),
             enabled=bool(getattr(wp_cfg, "enabled", True)),
         )

@@ -81,6 +81,7 @@ class TurnEngine:
         deadline = time.monotonic() + float(self.max_turn_seconds)
         failed_tools: set[str] = set()
         used_tools: list[str] = []
+        consecutive_fail_rounds = 0
         success_tool_calls = 0
         failed_tool_calls = 0
 
@@ -285,6 +286,11 @@ class TurnEngine:
                 include_severity=include_severity,
                 parallel_tool_exec=parallel_tool_exec,
             )
+            all_failed = bool(tool_exec_results) and all(not ok for _name, ok in tool_exec_results)
+            if all_failed:
+                consecutive_fail_rounds += 1
+            else:
+                consecutive_fail_rounds = 0
             for name, success in tool_exec_results:
                 if success:
                     failed_tools.discard(name)
@@ -295,6 +301,22 @@ class TurnEngine:
             total_tool_calls += len(tool_calls)
             for tc in tool_calls:
                 tool_call_counts[tc.name] = tool_call_counts.get(tc.name, 0) + 1
+            if consecutive_fail_rounds >= 2:
+                final_content = await self._finalize_after_budget(
+                    messages=messages,
+                    reason="连续两轮工具调用均失败，已物理熔断",
+                )
+                iteration_state = "tool_fuse"
+                await self._trigger_hook(
+                    "turn_iteration_end",
+                    {
+                        "trace_id": trace_id,
+                        "iteration": iteration,
+                        "status": iteration_state,
+                        "tool_calls": current_tool_calls_count,
+                    },
+                )
+                break
             if compact_after_tools:
                 await self._compact_messages_if_needed(messages, trace_id)
             iteration_state = "tool_round_completed"

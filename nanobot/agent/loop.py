@@ -274,6 +274,7 @@ class AgentLoop:
                     channel=msg.channel,
                     chat_id=msg.chat_id,
                     trace_id=msg.trace_id,
+                    session_key=msg.session_key,
                 )
                 response = await self._inner_process_message(msg)
                 if response:
@@ -289,12 +290,13 @@ class AgentLoop:
                             severity=FailureSeverity.ERROR,
                             retryable=True,
                             details={
-                                "channel": msg.channel,
-                                "chat_id": msg.chat_id,
-                                "trace_id": msg.trace_id,
-                                "error_type": type(e).__name__,
-                                "reason": "message_wrapper_exception",
-                            },
+                            "channel": msg.channel,
+                            "chat_id": msg.chat_id,
+                            "trace_id": msg.trace_id,
+                            "session_key": msg.session_key,
+                            "error_type": type(e).__name__,
+                            "reason": "message_wrapper_exception",
+                        },
                         )
                     )
                 except Exception:

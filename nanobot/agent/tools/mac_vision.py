@@ -37,6 +37,15 @@ class MacVisionTool(Tool):
                 "enum": ["recognize_text", "capture_screen", "look_at_screen"],
                 "description": "要执行的操作。",
             },
+            "level": {
+                "type": "string",
+                "enum": ["L1", "L2", "L3"],
+                "description": "视觉策略等级：L1 原生识别，L2 压缩图，L3 原图。",
+            },
+            "level_reason": {
+                "type": "string",
+                "description": "使用 L2/L3 的原因说明（可选）。",
+            },
             "confirm": {
                 "type": "boolean",
                 "description": "确认执行截图相关操作。",
@@ -85,6 +94,10 @@ class MacVisionTool(Tool):
                     warning = "Warning: action executed without confirm=true."
 
             app_name: str | None = kwargs.get("app_name")
+            level = str(kwargs.get("level") or "L1").upper()
+            if level not in {"L1", "L2", "L3"}:
+                level = "L1"
+            level_reason = str(kwargs.get("level_reason") or "").strip()
             frontmost_info = ""
             if action in ["capture_screen", "look_at_screen"]:
                 # 自动检测当前前台应用，辅助 AI 进行环境感知 (隔离异常)
@@ -105,17 +118,31 @@ class MacVisionTool(Tool):
                 result = self._recognize_text(image_path)
             elif action == "capture_screen":
                 result = self._capture_screen(app_name)
+                if not result.startswith("Error") and level == "L2":
+                    compressed = self._compress_image(result)
+                    result = compressed
             elif action == "look_at_screen":
                 path = self._capture_screen(app_name)
                 if path.startswith("Error"):
                     result = path
                 else:
-                    result = self._recognize_text(path)
+                    if level == "L2":
+                        path = self._compress_image(path)
+                        if path.startswith("Error"):
+                            result = path
+                        else:
+                            result = self._recognize_text(path)
+                    else:
+                        result = self._recognize_text(path)
             else:
                 return ToolResult(success=False, output=f"Unknown action: {action}")
 
             # 合并元数据
-            final_output = f"{frontmost_info}{result}" if frontmost_info else result
+            level_info = f"Vision Level: {level}"
+            if level_reason:
+                level_info = f"{level_info} (reason: {level_reason})"
+            meta_prefix = f"{level_info}\n" if action in {"capture_screen", "look_at_screen"} else ""
+            final_output = f"{frontmost_info}{meta_prefix}{result}" if frontmost_info else f"{meta_prefix}{result}"
             if warning:
                 final_output = f"{warning}\n{final_output}"
             
@@ -181,6 +208,22 @@ class MacVisionTool(Tool):
             return path
         except Exception as e:
             return f"Error capturing screen: {str(e)}"
+
+    def _compress_image(self, image_path: str, max_dim: int = 1200) -> str:
+        import subprocess
+        import os
+        base, ext = os.path.splitext(image_path)
+        out_path = f"{base}_compressed{ext or '.png'}"
+        try:
+            subprocess.run(
+                ["sips", "-Z", str(max_dim), image_path, "--out", out_path],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            return out_path
+        except Exception as e:
+            return f"Error: Failed to compress image: {e}"
 
     def _recognize_text(self, image_path: str) -> str:
         # Verify file exists

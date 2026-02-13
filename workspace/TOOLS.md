@@ -13,7 +13,7 @@
 - `amap`：高德地图能力（地理编码、逆地理、路线、距离、周边等）。
 - `tavily`：API 检索能力。
 - `browser`：页面渲染/交互能力。
-- `system_status`：系统运行状态/工具健康/近期失败事件查询。
+- `system_status`：系统运行状态/工具健康/失败事件查询（含 `failures_current`）。
 - `system_status.reset_runtime`：清理运行态（sessions/failures/logs），默认保留 `tasks.json`，需 `confirm=true`。
 - 具体选择顺序由运行时 ToolPolicy 决定，本文件不重复定义策略细节。
 

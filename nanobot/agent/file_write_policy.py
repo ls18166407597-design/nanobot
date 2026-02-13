@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from fnmatch import fnmatch
 from pathlib import Path
 
@@ -12,6 +12,8 @@ class FileWritePolicy:
     project_root: Path
     read_only_patterns: list[str]
     controlled_patterns: list[str]
+    workspace_root: Path | None = None
+    allow_workspace_root_files: list[str] = field(default_factory=list)
     require_confirm_for_controlled: bool = True
     enabled: bool = True
 
@@ -27,6 +29,15 @@ class FileWritePolicy:
         return "open"
 
     def check_write(self, path: Path, *, confirm: bool = False, change_note: str = "") -> tuple[bool, str]:
+        if self.workspace_root:
+            root = self.workspace_root.resolve()
+            try:
+                rel = path.resolve().relative_to(root)
+                if len(rel.parts) == 1:
+                    if rel.name not in set(self.allow_workspace_root_files or []):
+                        return False, "禁止在 workspace 根目录写入文件，请写入子目录（如 workspace/scripts/ 或 workspace/skills/）。"
+            except Exception:
+                pass
         cls = self.classify(path)
         if cls == "read_only":
             return False, "该文件属于受保护只读范围，禁止通过 AI 工具直接修改。"
@@ -54,4 +65,3 @@ class FileWritePolicy:
             if fnmatch(key, pat):
                 return True
         return False
-

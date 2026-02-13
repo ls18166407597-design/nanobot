@@ -49,6 +49,10 @@ class UserTurnService:
         if isinstance(cron_tool, CronTool):
             cron_tool.set_context(msg.channel, msg.chat_id)
 
+        system_status_tool = self.tools.get("system_status")
+        if system_status_tool and hasattr(system_status_tool, "set_context"):
+            system_status_tool.set_context(msg.channel, msg.chat_id, msg.session_key)
+
         messages = self.context.build_messages(
             history=session.get_history(),
             current_message=msg.content,

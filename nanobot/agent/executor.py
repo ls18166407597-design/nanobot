@@ -38,18 +38,26 @@ class ToolExecutor:
         self._runtime_channel: str | None = None
         self._runtime_chat_id: str | None = None
         self._runtime_trace_id: str | None = None
+        self._runtime_session_key: str | None = None
 
     def set_runtime_context(
-        self, *, channel: str | None = None, chat_id: str | None = None, trace_id: str | None = None
+        self,
+        *,
+        channel: str | None = None,
+        chat_id: str | None = None,
+        trace_id: str | None = None,
+        session_key: str | None = None,
     ) -> None:
         self._runtime_channel = channel
         self._runtime_chat_id = chat_id
         self._runtime_trace_id = trace_id
+        self._runtime_session_key = session_key
 
     def clear_runtime_context(self) -> None:
         self._runtime_channel = None
         self._runtime_chat_id = None
         self._runtime_trace_id = None
+        self._runtime_session_key = None
 
     def _get_call_hash(self, name: str, params: Dict[str, Any]) -> str:
         # Use shared hash builder to keep loop policy consistent with TurnEngine.
@@ -211,6 +219,8 @@ class ToolExecutor:
             event.details["chat_id"] = self._runtime_chat_id
         if self._runtime_trace_id and "trace_id" not in event.details:
             event.details["trace_id"] = self._runtime_trace_id
+        if self._runtime_session_key and "session_key" not in event.details:
+            event.details["session_key"] = self._runtime_session_key
         try:
             self.incident_manager.report(event)
         except Exception as e:

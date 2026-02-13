@@ -33,3 +33,19 @@ def test_controlled_requires_confirm_and_note(tmp_path: Path):
     assert ok2 is False
     assert ok3 is True
 
+
+def test_workspace_root_write_blocked(tmp_path: Path):
+    root = tmp_path / "repo"
+    workspace = root / "workspace"
+    workspace.mkdir(parents=True, exist_ok=True)
+    target = workspace / "temp.txt"
+    policy = FileWritePolicy(
+        project_root=root,
+        read_only_patterns=[],
+        controlled_patterns=[],
+        workspace_root=workspace,
+        allow_workspace_root_files=["AGENTS.md"],
+    )
+    ok, reason = policy.check_write(target, confirm=False, change_note="")
+    assert ok is False
+    assert "workspace 根目录" in reason

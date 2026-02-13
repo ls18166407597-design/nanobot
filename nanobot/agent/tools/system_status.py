@@ -9,7 +9,7 @@ from nanobot.agent.tools.base import Tool, ToolResult
 from nanobot.cli.runtime_commands import collect_health_snapshot, collect_tool_health_snapshot
 from nanobot.config.loader import get_config_path, load_config
 from nanobot.config.loader import get_data_dir
-from nanobot.runtime.failures import list_recent_failures
+from nanobot.runtime.failures import list_recent_failures, list_recent_failures_filtered
 from nanobot.runtime.state import reset_runtime_state
 
 
@@ -19,7 +19,7 @@ class SystemStatusTool(Tool):
     parameters = {
         "type": "object",
         "properties": {
-            "action": {"type": "string", "enum": ["summary", "failures", "reset_runtime"]},
+            "action": {"type": "string", "enum": ["summary", "failures", "failures_current", "reset_runtime"]},
             "limit": {"type": "integer", "minimum": 1, "maximum": 50},
             "confirm": {"type": "boolean", "description": "执行 reset_runtime 时必须显式确认"},
             "preserve_tasks": {"type": "boolean", "description": "reset_runtime 时是否保留 tasks.json"},
@@ -27,9 +27,21 @@ class SystemStatusTool(Tool):
         "required": ["action"],
     }
 
+    def __init__(self) -> None:
+        self._channel: str | None = None
+        self._chat_id: str | None = None
+        self._session_key: str | None = None
+
+    def set_context(self, channel: str, chat_id: str, session_key: str | None = None) -> None:
+        self._channel = channel
+        self._chat_id = chat_id
+        self._session_key = session_key
+
     async def execute(self, action: str, limit: int = 10, confirm: bool = False, preserve_tasks: bool = True, **kwargs: Any) -> ToolResult:
         if action == "failures":
             return self._failures(limit=max(1, min(50, int(limit or 10))))
+        if action == "failures_current":
+            return self._failures_current(limit=max(1, min(50, int(limit or 10))))
         if action == "summary":
             return self._summary()
         if action == "reset_runtime":
@@ -78,6 +90,23 @@ class SystemStatusTool(Tool):
         items = list_recent_failures(limit=limit)
         if not items:
             return ToolResult(success=True, output="近期无失败事件。")
+        lines: list[str] = []
+        for i, it in enumerate(items, start=1):
+            ts = str(it.get("ts", ""))[:19].replace("T", " ")
+            lines.append(
+                f"{i}. [{ts}] {it.get('source', '-')}/{it.get('category', '-')}: {it.get('summary', '')}"
+            )
+        return ToolResult(success=True, output="\n".join(lines))
+
+    def _failures_current(self, limit: int) -> ToolResult:
+        items = list_recent_failures_filtered(
+            limit=limit,
+            channel=self._channel,
+            chat_id=self._chat_id,
+            session_key=self._session_key,
+        )
+        if not items:
+            return ToolResult(success=True, output="当前会话暂无失败事件。")
         lines: list[str] = []
         for i, it in enumerate(items, start=1):
             ts = str(it.get("ts", ""))[:19].replace("T", " ")

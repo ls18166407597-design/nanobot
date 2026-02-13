@@ -198,7 +198,7 @@ class ListDirTool(Tool):
 
             items = []
             for item in sorted(dir_path.iterdir()):
-                prefix = "📁 " if item.is_dir() else "📄 "
+                prefix = "[DIR] " if item.is_dir() else "[FILE] "
                 items.append(f"{prefix}{item.name}")
 
             if not items:
