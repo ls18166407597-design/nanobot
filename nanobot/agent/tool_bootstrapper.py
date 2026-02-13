@@ -6,8 +6,8 @@ from typing import Any
 
 from nanobot.agent.file_write_policy import FileWritePolicy
 from nanobot.agent.task_manager import TaskManager
-from nanobot.agent.tools.browser import BrowserTool
 from nanobot.agent.tools.amap import AmapTool
+from nanobot.agent.tools.browser import BrowserTool
 from nanobot.agent.tools.cron import CronTool
 from nanobot.agent.tools.feishu import FeishuTool
 from nanobot.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
