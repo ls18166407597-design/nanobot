@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import asyncio
 from typing import Any
 
 from nanobot.agent.tools.base import Tool, ToolResult
@@ -70,12 +71,24 @@ class GitHubTool(Tool):
         return ToolResult(success=False, output=f"Unknown action: {action}")
 
     async def _list_tools(self, cfg: MCPServerConfig) -> ToolResult:
-        try:
-            async with MCPStdioClient(cfg) as client:
-                await client.initialize()
-                result = await client.request("tools/list", {})
-        except Exception as e:
-            return ToolResult(success=False, output=f"Error listing GitHub MCP tools: {e}")
+        result: dict[str, Any] | None = None
+        last_err: Exception | None = None
+        for attempt in range(1, 3):
+            try:
+                async with MCPStdioClient(cfg) as client:
+                    await client.initialize()
+                    result = await client.request("tools/list", {})
+                last_err = None
+                break
+            except Exception as e:
+                last_err = e
+                if attempt >= 2 or not self._is_retryable_error(e):
+                    break
+                await asyncio.sleep(0.6 * attempt)
+        if last_err is not None:
+            return ToolResult(success=False, output=f"Error listing GitHub MCP tools: {last_err}")
+        if result is None:
+            return ToolResult(success=False, output="Error listing GitHub MCP tools: empty response.")
 
         tools = result.get("tools", [])
         if not isinstance(tools, list) or not tools:
@@ -90,19 +103,49 @@ class GitHubTool(Tool):
         return ToolResult(success=True, output="\n".join(lines))
 
     async def _call_tool(self, cfg: MCPServerConfig, *, tool_name: str, arguments: dict[str, Any]) -> ToolResult:
-        try:
-            async with MCPStdioClient(cfg) as client:
-                await client.initialize()
-                result = await client.request(
-                    "tools/call",
-                    {"name": tool_name, "arguments": arguments},
-                )
-        except Exception as e:
-            return ToolResult(success=False, output=f"Error calling GitHub MCP tool '{tool_name}': {e}")
+        result: dict[str, Any] | None = None
+        last_err: Exception | None = None
+        for attempt in range(1, 3):
+            try:
+                async with MCPStdioClient(cfg) as client:
+                    await client.initialize()
+                    result = await client.request(
+                        "tools/call",
+                        {"name": tool_name, "arguments": arguments},
+                    )
+                last_err = None
+                break
+            except Exception as e:
+                last_err = e
+                if attempt >= 2 or not self._is_retryable_error(e):
+                    break
+                await asyncio.sleep(0.6 * attempt)
+        if last_err is not None:
+            return ToolResult(success=False, output=f"Error calling GitHub MCP tool '{tool_name}': {last_err}")
+        if result is None:
+            return ToolResult(success=False, output=f"Error calling GitHub MCP tool '{tool_name}': empty response.")
 
         is_error = bool(result.get("isError", False))
         output = self._render_result(result)
         return ToolResult(success=not is_error, output=output)
+
+    def _is_retryable_error(self, err: Exception) -> bool:
+        text = str(err).lower()
+        retryable_tokens = [
+            "fetch failed",
+            "timeout",
+            "timed out",
+            "socket hang up",
+            "econnreset",
+            "ehostunreach",
+            "enotfound",
+            "eai_again",
+            "429",
+            "502",
+            "503",
+            "504",
+        ]
+        return any(t in text for t in retryable_tokens)
 
     def _build_github_server_config(self, timeout: int | None) -> tuple[MCPServerConfig | None, str | None]:
         mcp_cfg_path = get_tool_config_path("mcp_config.json")

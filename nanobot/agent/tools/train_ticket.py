@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from nanobot.agent.location_utils import location_query_variants
 from nanobot.agent.tools.base import Tool, ToolResult
 from nanobot.mcp import MCPServerConfig, MCPStdioClient
 from nanobot.utils.helpers import get_tool_config_path
@@ -127,7 +128,7 @@ class TrainTicketTool(Tool):
         return ToolResult(success=True, output=f"{header}\n\n{out}".strip())
 
     async def _resolve_city(self, cfg: MCPServerConfig, city: str) -> ToolResult:
-        out, err = await self._call(cfg, "get-station-code-of-citys", {"citys": city})
+        out, err = await self._resolve_city_out(cfg, city)
         if err:
             return ToolResult(success=False, output=f"Error resolving city '{city}': {err}")
         return ToolResult(success=True, output=out)
@@ -136,16 +137,28 @@ class TrainTicketTool(Tool):
         out, err = await self._call(cfg, "get-station-code-by-names", {"stationNames": station_name})
         if err:
             return ToolResult(success=False, output=f"Error resolving station '{station_name}': {err}")
+        if self._looks_like_not_found(out):
+            return ToolResult(
+                success=False,
+                output=f"未找到车站编码: {station_name}",
+                remedy="请确认站名完整准确（例如“重庆北”“上海虹桥”）。",
+            )
         return ToolResult(success=True, output=out)
 
     async def _list_city_stations(self, cfg: MCPServerConfig, city: str) -> ToolResult:
         out, err = await self._call(cfg, "get-stations-code-in-city", {"city": city})
         if err:
             return ToolResult(success=False, output=f"Error listing city stations for '{city}': {err}")
+        if self._looks_like_not_found(out):
+            return ToolResult(
+                success=False,
+                output=f"未找到城市下属车站: {city}",
+                remedy="请改用地级市名称重试。",
+            )
         return ToolResult(success=True, output=out)
 
     async def _resolve_city_code(self, cfg: MCPServerConfig, city: str) -> tuple[str | None, str | None]:
-        out, err = await self._call(cfg, "get-station-code-of-citys", {"citys": city})
+        out, err = await self._resolve_city_out(cfg, city)
         if err:
             return None, err
         code = self._extract_station_code(out)
@@ -265,3 +278,30 @@ class TrainTicketTool(Tool):
         if not chunks:
             chunks.append(json.dumps(result, ensure_ascii=False, indent=2))
         return "\n".join(chunks)
+
+    def _looks_like_not_found(self, text: str) -> bool:
+        lowered = text.lower()
+        markers = [
+            "未检索到城市",
+            "未检索到车站",
+            "not found",
+            "no result",
+            "\"error\"",
+        ]
+        return any(m in lowered for m in markers)
+
+    async def _resolve_city_out(self, cfg: MCPServerConfig, city: str) -> tuple[str, str | None]:
+        last_err: str | None = None
+        for query in location_query_variants(city):
+            out, err = await self._call(cfg, "get-station-code-of-citys", {"citys": query})
+            if err:
+                last_err = err
+                continue
+            if self._looks_like_not_found(out):
+                last_err = (
+                    f"未找到城市/车站编码: {city}。请改用地级市名称（如“重庆”“万州”），"
+                    "或直接给出车站名（如“重庆北”）。"
+                )
+                continue
+            return out, None
+        return "", last_err or f"city '{city}' station_code not found."

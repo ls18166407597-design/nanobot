@@ -2,6 +2,7 @@ import json
 from typing import Any, Dict, List, Optional
 
 import httpx
+from nanobot.agent.location_utils import location_query_variants, score_geo_candidate
 from nanobot.agent.tools.base import Tool, ToolResult
 from nanobot.utils.helpers import get_tool_config_path
 
@@ -73,43 +74,52 @@ class WeatherTool(Tool):
                 location_id = location
                 location_name = location
                 if not location.isdigit():
-                    # GeoAPI domain discovery
-                    # Based on tests, geoapi.qweather.com is return 404 for some reason.
-                    # We will try the user's custom host AND geoapi.qweather.com
+                    # GeoAPI domain discovery.
+                    # Some keys are bound to a custom host; use that first.
                     found = False
-                    for geo_domain in [host, "geoapi.qweather.com"]:
-                        # QWeather v2 GeoAPI path
-                        geo_url = f"https://{geo_domain}/v2/city/lookup"
-                        try:
-                            geo_resp = await client.get(geo_url, params={"location": location, "key": key, "lang": lang})
-                            if geo_resp.status_code == 200:
-                                geo_data = geo_resp.json()
-                                if geo_data.get("code") == "200" and geo_data.get("location"):
-                                    loc_info = geo_data["location"][0]
-                                    location_id = loc_info["id"]
-                                    location_name = f"{loc_info.get('adm2', loc_info.get('adm1', ''))} {loc_info['name']}"
-                                    found = True
-                                    break
-                        except Exception:
-                            continue
+                    variants = location_query_variants(location)
+                    for query in variants:
+                        for geo_domain in [host, "geoapi.qweather.com", "devapi.qweather.com"]:
+                            # Official endpoint is /geo/v2/city/lookup.
+                            # Keep legacy /v2 path as fallback for provider-side compatibility.
+                            for geo_path in ["/geo/v2/city/lookup", "/v2/city/lookup"]:
+                                geo_url = f"https://{geo_domain}{geo_path}"
+                                try:
+                                    geo_resp = await client.get(
+                                        geo_url,
+                                        params={"location": query, "key": key, "lang": lang, "number": 10},
+                                    )
+                                    if geo_resp.status_code == 200:
+                                        geo_data = geo_resp.json()
+                                        locs = geo_data.get("location") or []
+                                        if geo_data.get("code") == "200" and isinstance(locs, list) and locs:
+                                            loc_info = self._pick_best_location(location, locs)
+                                            location_id = str(loc_info.get("id", "")).strip()
+                                            display_parts = [
+                                                str(loc_info.get("adm1", "")).strip(),
+                                                str(loc_info.get("adm2", "")).strip(),
+                                                str(loc_info.get("name", "")).strip(),
+                                            ]
+                                            location_name = " ".join([x for x in display_parts if x]).strip() or query
+                                            if location_id:
+                                                found = True
+                                                break
+                                except Exception:
+                                    continue
+                            if found:
+                                break
+                        if found:
+                            break
                     
                     if not found:
-                        # Final fallback: search might be needed on devapi as well if subscription differs
-                        try:
-                            geo_url = f"https://devapi.qweather.com/v2/city/lookup"
-                            geo_resp = await client.get(geo_url, params={"location": location, "key": key, "lang": lang})
-                            if geo_resp.status_code == 200:
-                                geo_data = geo_resp.json()
-                                if geo_data.get("code") == "200" and geo_data.get("location"):
-                                    loc_info = geo_data["location"][0]
-                                    location_id = loc_info["id"]
-                                    location_name = f"{loc_info.get('adm2', loc_info.get('adm1', ''))} {loc_info['name']}"
-                                    found = True
-                        except Exception:
-                            pass
-
-                    if not found:
-                         return ToolResult(success=False, output=f"无法解析城市 '{location}'。请提供 9 位城市 ID，如北京是 101010100。")
+                        return ToolResult(
+                            success=False,
+                            output=(
+                                f"无法解析地点 '{location}'。当前天气接口通常支持到区县/城市级，"
+                                "乡镇名称可能无法直接识别。"
+                            ),
+                            remedy="请改用“市/区县”名称，或提供 9 位地点 ID（如北京 101010100）。",
+                        )
 
                 # 2. Weather Action
                 base_url = f"https://{host}/v7"
@@ -158,3 +168,6 @@ class WeatherTool(Tool):
 
             except Exception as e:
                 return ToolResult(success=False, output=f"Weather Tool Error: {str(e)}")
+
+    def _pick_best_location(self, query: str, locs: List[Dict[str, Any]]) -> Dict[str, Any]:
+        return max(locs, key=lambda item: score_geo_candidate(query, item))
