@@ -52,7 +52,6 @@
 - **任务库**: `task(action="create", name="日报", description="生成日报", command="python scripts/daily.py")`
 - **定时执行**: `cron(action="add", task_name="日报", cron_expr="0 9 * * *", tz="Asia/Shanghai")`
 - **任务执行参数**: `task(action="run", name="日报", working_dir=".", timeout=60, confirm=true)`
-- **后台子任务管理**: `spawn(action="list")` / `spawn(action="status", task_id="...")` / `spawn(action="cancel", task_id="...")`
 
 ## 🧩 本地 Gemini 桥接 (Local Bridge)
 
@@ -102,8 +101,8 @@ Nanobot 默认通过本地 `8045/8046` 端口访问 Gemini 模型（由外部桥
 
 1.  **精准模型路由 (Strict Provider Mapping)**:
     - 彻底重构了凭据匹配算法。现在系统会根据模型名称强制锁定供应商（例如 `gemini` 始终绑定本地代理，`qwen` 始终直连 SiliconFlow），杜绝了 API Key 与 Base URL 错配导致的“弗兰肯斯坦”型 401 报错。
-2.  **全链路 Failover (Subagent Routing)**:
-    - 子任务（Spawned Subagents）现在也接入了主脑的“注册表模型”。即使主线模型（如 GPT-4o）由于配额耗尽失效，子任务也会自动降级到兼容的备用模型执行。
+2.  **全链路 Failover (Provider Routing)**:
+    - 主回合与系统回合统一接入注册表模型与故障切换策略。即使首选模型失效，也会自动降级到兼容候选。
 3.  **动态别名映射**:
     - 支持在 `config.json` 中配置模型别名。例如你可以定义绰号 `qwen-3-8b`，系统会自动将其映射到物理模型 ID `Qwen/Qwen3-8B` 并正确处理对应的授权。
 ## 🛡️ 第六阶段：进阶网关稳定性与平台感 (Advanced Gateway & Platform Awareness)
@@ -184,6 +183,9 @@ workspace/
 ```
 
 ## 🤝 项目文档
+
+文档主入口与职责分工请先看：
+- 🧭 **[文档导航（先看这个）](docs/文档导航.md)**
 
 - ⚙️ **[配置指南](docs/配置指南.md)**
 - 🗺️ **[路线图](docs/路线图.md)**
