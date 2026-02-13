@@ -22,6 +22,11 @@
 - `gmail`：Gmail 协议实现（mail 内部路由可调用）。
 - `qq_mail`：QQ 邮箱协议实现（mail 内部路由可调用）。
 
+## 飞书能力边界（当前实现）
+- `feishu channel`（通道层）：可接收飞书私聊/群聊消息并回复文本；可对收到消息添加 reaction。
+- `feishu tool`（工具层）：支持 `send_message`、`spreadsheet_write`、`bitable_add_record`。
+- 行为约束：默认按“只服务当前用户”执行；若配置了 `channels.feishu.allowFrom`，仅白名单用户可触发。
+
 ## 技能-工具映射
 - `automated-messaging` -> `message`, `mac_control`, `mac_vision`, `exec`
 - `computer-control` -> `mac_control`, `mac_vision`, `exec`

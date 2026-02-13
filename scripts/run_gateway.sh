@@ -19,6 +19,16 @@ if [ ! -x ".venv/bin/nanobot" ]; then
   exit 1
 fi
 
+# Ensure Python TLS uses a valid CA bundle (important for Feishu/Lark WebSocket TLS on macOS).
+if [ -x ".venv/bin/python" ]; then
+  CERT_PATH="$(.venv/bin/python -c 'import certifi; print(certifi.where())' 2>/dev/null || true)"
+  if [ -n "${CERT_PATH:-}" ] && [ -f "$CERT_PATH" ]; then
+    export SSL_CERT_FILE="$CERT_PATH"
+    export REQUESTS_CA_BUNDLE="$CERT_PATH"
+    export CURL_CA_BUNDLE="$CERT_PATH"
+  fi
+fi
+
 echo "Starting Nanobot Gateway..."
 echo "NANOBOT_HOME: $NANOBOT_HOME"
 echo "Logs: $NANOBOT_HOME/gateway.log"

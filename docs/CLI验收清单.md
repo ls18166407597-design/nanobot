@@ -72,7 +72,7 @@ NANOBOT_HOME=/Users/liusong/Downloads/nanobot/.home ./start.sh
 ### 5.3 重启
 
 ```bash
-NANOBOT_HOME=/Users/liusong/Downloads/nanobot/.home .venv/bin/nanobot restart --timeout 8
+cd /Users/liusong/Downloads/nanobot && ./restart.sh
 ```
 
 通过标准：
